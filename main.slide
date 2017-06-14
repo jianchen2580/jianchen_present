@@ -51,28 +51,57 @@ Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离�
 setns() – 把某进程加入到某个namespace
 
 * clone - UTS Namespace
+隔离system identifiers：nodename（gethostname）
 
 .code namespace_uts.c
 
 * Namespace - UTS 
 
-    hchen@ubuntu:~$ sudo ./uts
+    [root@localhost tmp]# ./ns_utc
     Parent - start a container!
     Container - inside the container!
-    root@container:~# hostname
+    [root@container tmp]# hostname
     container
-    root@container:~# uname -n
+    [root@container tmp]# uname -n
     container
+    [root@container tmp]# exit
+    Parent - container stopped!
+    [root@localhost tmp]#
 
 * Namespace - IPC
 
-- IPC(Inter-Process Communication)，是Unix/Linux下进程间通信的一种方式，IPC有共享内存、信号量、消息队列等方法。
+- IPC(Inter-Process Communication)，是Unix/Linux下进程间通信的一种方式，IPC有共享内存、信号量、POSIX消息队列等方法。
 - IPC需要一个全局的ID
 - 启动IPC隔离需要在clone系统调用加上CLONE_NEWIPC
 
 * Namespace - IPC
 
 .code namespace_ipc.c
+
+* Namespace - IPC
+
+隔离IPC资源：POSIX消息队列
+
+    [root@localhost tmp]# ipcmk -Q
+    Message queue id: 0
+    [root@localhost tmp]# ipcs -q
+
+    ------ Message Queues --------
+    key        msqid      owner      perms      used-bytes   messages
+    0x60bb5e11 0          root       644        0            0
+    
+    [root@localhost tmp]# ./ns_ipc
+    Parent - start a container!
+    Container - inside the container!
+    [root@container tmp]# ipcs -q
+    
+    ------ Message Queues --------
+    key        msqid      owner      perms      used-bytes   messages
+
+* Namespace - IPC
+
+- 隔离IPC资源 - 不同PID namespace可以拥有相同的PID
+- 为什么容器内 `ps aux` 仍然显示host上的所有processes？
 
 * Namespace - PID
 
@@ -85,3 +114,8 @@ Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离�
 - 需要文件系统隔离
 
 * Namespace - Mount
+
+- 隔离文件系统mount points 
+- 不同mount namespace里的process看到不同的文件系统
+
+

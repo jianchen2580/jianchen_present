@@ -30,7 +30,7 @@ int main()
     printf("Parent - start a container!\n");
     /* 调用clone函数，其中传出一个函数，还有一个栈空间的（为什么传尾指针，因为栈是反着的） */
     int container_pid = clone(container_main, container_stack+STACK_SIZE,
-         CLONE_NEWUTS | SIGCHLD, NULL); /*启用CLONE_NEWUTS Namespace隔离 */
+         CLONE_NEWUTS | CLONE_NEWIPC | SIGCHLD, NULL); /*启用CLONE_NEWIPC Namespace隔离 */
     /* 等待子进程结束 */
     waitpid(container_pid, NULL, 0);
     printf("Parent - container stopped!\n");
