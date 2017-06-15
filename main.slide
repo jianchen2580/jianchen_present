@@ -35,7 +35,7 @@ chroot提供了一种简单的隔离模式：chroot内部的文件系统无法�
 Linux Namespace是Linux提供的一种内核级别环境隔离的方法
 Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离机制。
 
-* Linux Namespaces
+** Linux Namespaces sad
 
 - Mount namespaces CLONE_NEWNS Linux 2.4.19
 - UTS namespaces CLONE_NEWUTS Linux 2.6.19

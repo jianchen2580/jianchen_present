@@ -25,12 +25,12 @@ Jian Chen
 
 * 相关技术术语
 
-- IPAM：IP地址管理；这个IP地址管理并不是容器所特有的，传统的网络比如说DHCP其实也是一种IPAM，到了容器时代我们谈IPAM，主流的两种方法： 基于CIDR的IP地址段分配地或者精确为每一个容器分配IP。但总之一旦形成一个容器主机集群之后，上面的容器都要给它分配一个全局唯一的IP地址，这就涉及到IPAM的话题。
+- IPAM：IP地址管理（分配），传统网络(DHCP)，容器网络IPAM，基于CIDR的IP地址段分配地或者精确为每一个容器分配IP
 - Overlay：在现有二层或三层网络之上再构建起来一个独立的网络，这个网络通常会有自己独立的IP地址空间、交换或者路由的实现。
 - IPSesc：一个点对点的一个加密通信协议，一般会用到Overlay网络的数据通道里。
-- VXLAN：由VMware、Cisco、RedHat等联合提出的这么一个解决方案，这个解决方案最主要是解决VLAN支持虚拟网络数量（4096）过少的问题。因为在公有云上每一个租户都有不同的VPC，4096明显不够用。就有了vxLAN，它可以支持1600万个虚拟网络，基本上公有云是够用的。
-- 网桥Bridge：连接两个对等网络之间的网络设备，但在今天的语境里指的是Linux Bridge，就是大名鼎鼎的Docker0这个网桥。
-- BGP：主干网自治网络的路由协议，今天有了互联网，互联网由很多小的自治网络构成的，自治网络之间的三层路由是由BGP实现的。
+- VXLAN：由VMware、Cisco、RedHat等联合提出的这么一个解决方案，这个解决方案最主要是解决VLAN支持虚拟网络数量（4096）过少的问题。支持1600万个虚拟网络
+- 网桥Bridge：连接两个对等网络之间的网络设备，但在今天的语境里指的是Linux Bridge，例如Docker0
+- BGP：主干网自治网络的路由协议，互联网由很多小的自治网络构成的，自治网络之间的三层路由由BGP实现。
 - SDN、Openflow：软件定义网络里面的一个术语，比如说我们经常听到的流表、控制平面，或者转发平面都是Openflow里的术语。
 
 * 容器网络方案
@@ -40,17 +40,21 @@ Jian Chen
 
 * 容器网络方案 - 隧道方案（Overlay Networking）
 
-隧道方案在IaaS层的网络中应用也比较多，大家共识是随着节点规模的增长复杂度会提升，而且出了网络问题跟踪起来比较麻烦，大规模集群情况下这是需要考虑的一个点。
-Weave：UDP广播，本机建立新的BR，通过PCAP互通
-Open vSwitch（OVS）：基于VXLAN和GRE协议，但是性能方面损失比较严重
-Flannel：UDP广播，VXLAN
-Racher：IPsec
+- Weave：UDP广播，本机建立新的BR，通过PCAP互通
+- Open vSwitch（OVS）：基于VXLAN和GRE协议，但是性能方面损失比较严重
+- Flannel：UDP广播，VXLAN
+- Racher：IPsec
+
+隧道方案在IaaS层的网络中应用较多，随着节点规模的增长复杂度会提升，而且出了网络问题跟踪起来比较麻烦，大规模集群情况下需要考虑
+
 
 * 容器网络方案 - 路由方案
 
+- Calico：基于BGP协议的路由方案，支持很细致的ACL控制，对混合云亲和度比较高。
+- Macvlan：从逻辑和Kernel层来看隔离性和性能最优的方案，基于二层隔离，所以需要二层交换机支持，大多数云服务商不支持，所以混合云上比较难以实现。
+
 路由方案一般是从3层或者2层实现隔离和跨主机容器互通的，出了问题相对容易排查。
-Calico：基于BGP协议的路由方案，支持很细致的ACL控制，对混合云亲和度比较高。
-Macvlan：从逻辑和Kernel层来看隔离性和性能最优的方案，基于二层隔离，所以需要二层路由器支持，大多数云服务商不支持，所以混合云上比较难以实现。
+但是，Docker 1.9 以后，在决定容器网络方案还需考虑网络模型的”站队“问题，倒底是Docker的”CNM“，还是Google，CoreOS的”CNI“。
 
 * CNM & CNI阵营
 
@@ -60,31 +64,127 @@ CNM和CNI并不是网络实现，它们是网络规范和网络体系，关注�
 
 * CNM
 
+- Docker Swarm overlay
+- Macvlan & IP networkdrivers
+- Calico
+- Contiv
+- Weave
+
 Docker Libnetwork的优势就是原生，而且和Docker容器生命周期结合紧密；缺点也可以理解为是原生，被Docker“绑架”。
-Docker Swarm overlay
-Macvlan & IP networkdrivers
-Calico
-Contiv
-Weave
+
+* CNM 
+
+.image cnm_model.jpg
+
+- Sandbox，包含容器网络栈的配置，包括Interface，路由表及DNS配置，对应的实现如：Linux Network Namespace；一个Sandbox可以包含多个Network；
+- Endpoint，做为Sandbox接入Network的介质，对应的实现如：veth pair、TAP；一个Endpoint只能属于一个Network，也只能属于一个Sandbox；
+- Network，一组可以相互通信的Endpoints；对应的实现如：Linux bridge、VLAN；Network有大量Endpoint资源组成。
+
+* CNM Docker网络管理
+
+- NetworkController，对外提供分配及管理网络的APIs，Docker Libnetwork支持多个活动的网络driver，NetworkController允许绑定特定的driver到指定的网络；
+- Driver，网络驱动对用户而言是不直接交互的，它通过插件式的接入来提供最终网络功能的实现；Driver（包括IPAM）负责一个Network的管理，包括资源分配和回收。
+具体细节移步https://github.com/docker/libnetwork/blob/master/docs/design.md
 
 * CNI
 
-CNI的优势是兼容其他容器技术（e.g. rkt）及上层编排系统（Kubernetes & Mesos)，而且社区活跃势头迅猛，Kubernetes加上CoreOS主推；缺点是非Docker原生。
-Kubernetes
-Weave
-Macvlan
-Calico
-Flannel
-Contiv
-Mesos CNI
+- Kubernetes
+- Weave
+- Macvlan
+- Calico
+- Flannel
+- Contiv
+- Mesos CNI
+
+CNI的优势是兼容其他容器技术（e.g. rkt）及上层编排系统（Kubernetes & Mesos)，而且社区活跃势头迅猛，Kubernetes加上CoreOS主推；缺点（也是优点）是非Docker原生
 
 * Calico容器网络
 
-- 3层数据中心网络方案，支持集成OpenStack等IaaS基础架构
-- 支持VM、容器、裸机之间的IP通信
-- BGP，虚拟路由代替虚拟交换，通过BGP协议传播可达信息（路由）到剩余数据中心
+
+Calico是一个纯3层的数据中心网络方案，而且无缝集成像OpenStack这种IaaS云架构，能够提供可控的VM、容器、裸机之间的IP通信。
+CNM和CNI两大阵营都扮演着比较重要的角色。
+
+.image calico.png
+
+* Calico容器网络
+
+- 每个计算节点利用Linux Kernel实现了一个高效的vRouter来负责数据转发
+- vRouter通过BGP协议负责把自己上运行的workload的路由信息像整个Calico网络内传播
+- 小规模部署可以直接互联，大规模下可通过指定的BGP route reflector来完成。
 - 基于iptables提供了丰富而灵活的网络Policy，保证通过各个节点上的ACLs来提供Workload的多租户隔离、安全组以及其他可达性限制等功能。
 
-* Calico架构图
+* Calico - IP路由
+
+workload之间的数据流量都是通过IP路由的方式完成互联
+.image calico_ip.png _ 900
+
+* Calico - IP结构
+
+.image calico_ippack.png _ 600
+Calico节点组网可以直接利用数据中心的网络结构（无论是L2或者L3），不需要额外的NAT，隧道或者Overlay Network。 
+没有封包解包，节约CPU计算资源,提高网络的性能。
+
+* Calico核心组件
+
+.image calico_core.png _ 600
+- Felix，Calico Agent，跑在每台需要运行Workload的节点上，主要负责配置路由及ACLs等信息来确保Endpoint的连通状态；
+- etcd，分布式键值存储，主要负责网络元数据一致性，确保Calico网络状态的准确性；
+- BGP Client（BIRD）, 主要负责把Felix写入Kernel的路由信息分发到当前Calico网络，确保Workload间的通信的有效性；
+- BGP Route Reflector（BIRD），大规模部署时使用，摒弃所有节点互联的 mesh 模式，通过一个或者多个BGP Route Reflector来完成集中式的路由分发。
+
+* Calico L2全联接
+
+.image calico_l2.png _ 800
+
+* Calico L3
+
+.image calico_l3.png _ 800
 
 * 性能对比
+
+* Contiv Netplugin
+
+Contiv Netplugin 是来自思科的解决方案。编程语言为 Go。它基于 OpenvSwitch，以插件化的形式支持容器访问网络，支持 VLAN，Vxlan，多租户，主机访问控制策略等。作为思科整体支持容器基础设施contiv项目的网络部分，最大的亮点在于容器被赋予了 SDN 能力，实现对容器更细粒度，更丰富的访问控制功能。另外，对 Docker CNM 网络模型的支持，并内置了 IPAM 接口，不仅仅提供了一容器一 IP，而且容器的网络信息被记录的容器配置中，伴随着容器的整个生命周期，减低因为状态不同步造成网络信息丢失的风险。有别于 CNI，这种内聚化的设计有利于减少对第三方模块的依赖。
+
+* Contiv Netplugin核心组件
+
+.image contriv_core.png
+
+* Contiv Netplugin核心组件
+
+- Netmaster 后台进程负责记录所有节点状态，保存网络信息，分配 IP 地址
+- Netplugin 后台进程作为每个宿主机上的 Agent 与 Docker 及 OVS 通信，处理来自 Docker 的请求，管理 OVS。Docker 方面接口为 remote driver，包括一系列 Docker 定义的 JSON-RPC(POST) 消息。OVS 方面接口为 remote ovsdb，也是 JSON-RPC 消息。以上消息都在 localhost 上处理。
+- 集群管理依赖 etcd/serf
+
+
+* Contiv Netplugin 代码结构
+
+.image contriv_code.png _ 500
+
+* Calico Vs Contiv
+
+.image calico_vs_contiv1.png
+
+* Calico Vs Contiv
+
+.image calico_vs_contiv2.png
+
+* Calico Vs Contiv - 包转发
+
+.image calico_vs_contiv_package.png
+
+* Calico的优势
+
+- 网络拓扑直观易懂，平行式扩展，可扩展性强
+- 容器间网络三层隔离，无需要担心arp风暴
+- 基于iptable/linux kernel包转发效率高，损耗低
+- 社区活跃，正式版本较成熟
+
+* Netplugin的优势
+
+- 较早支持CNM模型。与已有的网络基础设施兼容性较高，改造影响小。基于VLAN的平行扩展与现有网络结构地位对等
+- SDN能力，能够对容器的网络访问做更精细的控制
+- 多租户支持，具备未来向混合云/公有云迁移的潜力
+- 代码规模不大，逻辑结构清晰，并发好，VLAN在公司内部有开发部署运维实践经验，稳定性经过生产环境验证
+- 京东基于相同的技术栈（OVS + VLAN）已支持10w+ 容器的运行。
+
