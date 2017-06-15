@@ -35,8 +35,20 @@ Jian Chen
 
 * 容器网络方案
 
-- 隧道方案 （Overlay Networking）
+- 大二层
+- NAT
+- 隧道（Tunnel）方案 （Overlay VXLAN）
 - 路由方案
+
+* 大二层 + NAT
+
+大二层，大二层是将物理网卡和容器网络桥接到同一个Linux Bridge，容器网络可以接入Linux Bridge，也可以将容器网络接入容器网桥docker0，再把docker0桥接到Linux Bridge；使得容器网络和宿主机网络在同一个二层网络。常见实现方案host、MacVLAN。
+
+NAT方式，NAT是默认的Docker网络，利用iptables地址转换实现宿主机IP到容器的通信。容器对外IP都是宿主机的IP，NAT的性能损耗比较大；但只要宿主机之间三层IP可达，容器之间就可以通信。
+
+物理网卡和容器网络桥接到同一个Linux Bridge，容器网络可以接入Linux Bridge，也可以将容器网络接入容器网桥docker0，再把docker0桥接到Linux Bridge；使得容器网络和宿主机网络在同一个二层网络。常见实现方案
+- host
+- MacVLAN
 
 * 容器网络方案 - 隧道方案（Overlay Networking）
 

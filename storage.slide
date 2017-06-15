@@ -1,0 +1,24 @@
+Docker网络基础
+23 June 2017
+Tags: Docker, Network
+
+Jian Chen
+
+* Overview
+
+- 本地存储
+- 共享存储
+
+* 本地存储
+
+日志文件持久化
+
+* 共享存储
+
+有状态服务状态保持和数据持久化
+
+* 参见问题
+
+问题描述，DeviceMapper loop模式，Docker未将容器日志映射到宿主机，容器内部产生大量日志，导致Containers或者Local Volume逻辑使用100%，容器异常down掉。
+
+解决方案，容器日志本地存储、加强容器存储监控（docker version>=1.13.0，docker system df查看）、容器存储方案选择DeviceMapper direct并基于逻辑卷监控（Docker监控先行）。
