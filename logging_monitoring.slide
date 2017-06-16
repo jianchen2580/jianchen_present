@@ -14,16 +14,65 @@ Jian Chen
 - 采集
 - 存储
 
-* Docker日志 - 采集
+* Docker日志 - 采集办法
 
+- docker 自带的logging driver
+- 监控日志文件，并通过管道转出数据
+- 容器内进程自己写出日志
+
+* Docker日志 logging driver
+
+Docker daemon自带默认的logging driver,此外，也可以定制或者使用其它自带的logging driver。
+
+* Docker默认支持的logging driver
+
+- none	No logs will be available for the container and docker logs will not return any output.	 
+- json-file	The logs are formatted as JSON. The default logging driver for Docker.	 
+syslog	Writes logging messages to the syslog facility. The syslog daemon must be running on the host - machine.	 
+journald	Writes log messages to journald. The journald daemon must be running on the host machine.- 	 
+gelf	Writes log messages to a Graylog Extended Log Format (GELF) endpoint such as Graylog or - Logstash.	 
+fluentd	Writes log messages to fluentd (forward input). The fluentd daemon must be running on the host - machine.	 
+- awslogs	Writes log messages to Amazon CloudWatch Logs.	 
+- splunk	Writes log messages to splunk using the HTTP Event Collector.	 
+etwlogs	Writes log messages as Event Tracing for Windows (ETW) events. Only available on Windows - platforms.	 
+- gcplogs	Writes log messages to Google Cloud Platform (GCP) Logging.
+
+* Docker日志 - logging driver配置
+
+    /etc/docker/daemon.json
+    {
+      "log-driver": "syslog"
+    }
+
+logging driver可配置选项
+    
+    {
+  "log-driver": "json-file",
+  "log-opts": [
+    "labels=production_status",
+    "env=os,customer"
+  ]
+    }
+
+* 监控日志文件
+
+日志文件和容器是绑定的，因此需要有一个 agent 的角色来做这件事，还要考虑管道的可靠性问题。
+agent：
 - filebeat
 - fluentd
 
-* Docker存储
+* 容器内进程自己写出日志
+
+- 进程直接写出，例如log4j2直接指定Appender
+- 映射日志volume （dev/log）进容器
+不推荐在集群环境下使用：
+- 进程直接写出，控制权交给了业务方，对业务不透明，可控性降低，同时暴露集群结构给上层
+- 容器内进程直接写文件系统，隔离性减弱，单点问题追踪困难
+
+* Docker日志存储
 
 - ElasticSearch
 - InfluxDB
-- 
 
 * Docker监控
 
