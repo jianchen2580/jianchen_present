@@ -28,14 +28,14 @@ Jian Chen
 
 .image gopher-mat.png
 
-* Linux Namespaces
+* Namespaces
 
 chroot系统调用（通过修改根目录把用户jail到一个特定目录下）
 chroot提供了一种简单的隔离模式：chroot内部的文件系统无法访问外部的内容
 Linux Namespace是Linux提供的一种内核级别环境隔离的方法
 Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离机制。
 
-** Linux Namespaces sad
+* Namespaces
 
 - Mount namespaces CLONE_NEWNS Linux 2.4.19
 - UTS namespaces CLONE_NEWUTS Linux 2.6.19
@@ -46,12 +46,12 @@ Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离�
 
 * Namespace - 系统调用
 
-clone() – 用来创建一个新的进程，并可以通过设计上述参数达到隔离。
+clone() – 用来创建一个新的进程，并可以通过设计上述参数达到隔离
 unshare() – 使某进程脱离某个namespace
 setns() – 把某进程加入到某个namespace
 
-* clone - UTS Namespace
-隔离system identifiers：nodename（gethostname）
+* Namespace - UTS
+隔离system identifiers：hostname/domainname
 
 .code namespace_uts.c
 
@@ -70,8 +70,8 @@ Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离�
 
 * Namespace - IPC
 
-- IPC(Inter-Process Communication)，是Unix/Linux下进程间通信的一种方式，IPC有共享内存、信号量、POSIX消息队列等方法。
-- IPC需要一个全局的ID
+- IPC(Inter-Process Communication)，Unix/Linux下进程间通信的一种方式，包括共享内存、信号量、POSIX消息队列
+- IPC具备一个全局的ID
 - 启动IPC隔离需要在clone系统调用加上CLONE_NEWIPC
 
 * Namespace - IPC
@@ -118,4 +118,117 @@ Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离�
 - 隔离文件系统mount points 
 - 不同mount namespace里的process看到不同的文件系统
 
+* 容器隔离 - Control Groups
 
+- cgroups是内核提供的功能，它约束process对CPU，memory，IO，network bandwith的使用
+- Docker支持创建容器时候使用cgoup来实现对容器的resource control
+例如， user space memeory - 500m, kernel space memory 50m, cpu share 512, blkioweith 400
+
+`docker run -it -m 500M --kernel-memory 50M --cpu-shares 512 --blkio-weight 400 --name ubuntu1 ubuntu bash` 
+
+
+* 容器安全
+
+* 容器安全模块
+
+.image security_model.png _ 800
+
+* 容器安全 - Linux kernel
+
+- Namespaces - PID, Mount, Network, IPC, UTC, User
+- Cgroups - 限制CPU，Memory, IO
+- Capabilities - 减少 root access，kernel 3.19.0.21支持36 capabilities 
+- Seccomp profiles - 限制kernel 系统调用（system calls）， 可控制300+ 系统调用
+- Special kernel modules， 包括AppArmor, SElinux ， 提供kernel资源提供细颗粒控制
+
+- Namespackes - PID, Mount
+
+`docker run -it --name ubuntu1 -v /usr:/ubuntu1 ubuntu bash`
+`docker run -it --name ubuntu2 -v /usr:/ubuntu2 ubuntu bash`
+ubuntu1 container:
+
+* Cgroups
+
+*  Capabilities
+
+- root用户一般具备所有权限。Capabilities 提供对root用户的权限控制
+- Linux 3.19.0.21, Capabilities 可以管理36个capabilities - /usr/include/linux/capability.h
+- Docker在启动container的时候默认只开启了14个capabilities
+- Capabilities禁止了insert／remove kernel modules， system clock manipulation等
+
+
+* Seccomp
+
+- Linux kernel 特性限制process的系统调用
+- Docker使用Seccomp限制container的系统调用
+- Docker禁用了300+系统调用中的44个，e.g. mount, settimeofday
+- .link https://github.com/moby/moby/blob/master/profiles/seccomp/default.json  Docker Seccomp profile
+.image moby-project-logo.png
+
+* Seccomp
+
+Profile disabling chmod system call:
+
+    {
+      "defaultAction": "SCMP_ACT_ALLOW",
+      "syscalls": [
+        {
+          "name": "chmod",
+          "action": "SCMP_ACT_ERRNO"
+        }
+      ]
+    }
+
+验证：
+
+    ➜  present git:(master) ✗ docker run --rm -it --security-opt seccomp:/Users/chenjian/Developments/present/profile.json busybox chmod 400 /etc/hosts
+    chmod: /etc/hosts: Operation not permitted
+    ➜  present git:(master) ✗ docker run --rm -it busybox chmod 400 /etc/hosts
+
+
+Linux kernel Security modules - AppArmor, SELinux
+
+- 限制system resources的访问
+- 当AppArmor （ubuntu）应用于某个应用的时候，OS允许该应用只能访问security profile提及的文件与目录
+- SELinux（RHEL）是一个labeling system， 所有process, file, directory, network ports, devices 都关联到一个label。通过定义rule资源访问
+- SElinux 太难，AppArmor profiles相对容易写。但SELinux功能更强大
+
+* Docker Engine 安全访问
+
+- Docker engine 以daemon运行，默认监听 Unix socket： unix:///var/run/docker.socket
+- 可以通过http 或者 https 远程访问 Docker engine
+- http 不建议，尽量选择https
+- 建议sever端开启Authorization
+
+* Authorization plugin
+
+- Authorization plugin 提供基于userId， GroupId， command executed等访问控制
+- Auth Plugin 告知Docker daemon特定的命令是否允许被执行
+- e.g. Twistlock authz broker 
+
+* Container image signing
+
+- Container image通过签名来保证它来源于可信任的源
+- image的发布者负责签名并发布push到registry。
+
+* Container Image scanning
+
+- Docker Security Scan 扫描容器images并报告威胁
+- Scanning通过比对image的每个layer和CVE databases
+- 额外的二进制扫描来保证package没有被篡改
+- 通知同时会发送给image的publisher和user
+- 目前支持Docker hub和Docker cloud
+
+* Docker Security - 最佳实践
+
+Docker默认选项和安全策略足够满足大多数需求，以下是一些建议：
+- 不要在container内开启SSH，`docker exec`够用了
+- 不要使用来历不明的image
+- 用read-only Mount device和volume
+- 用non-root用户执行应用，尽量少用root
+- 如果需要root，限制root的权限，比如之前提到的Capabilities，Seccomp, SELinux/AppArmor
+- 保持OS更新，使用对容器优化的OS，CoreOS／Atomic（RH）
+- 不要保存密钥，特别是Dockerfile
+- 尽量使用Docker 官方镜像
+- 定期使用Container security scanning
+- 远程Docker daemon访问开启TLS
