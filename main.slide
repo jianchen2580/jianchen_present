@@ -1,0 +1,387 @@
+容器基础技术与安全
+23 June 2017
+Tags: Docker, Namespace, CGroup，Security
+
+Jian Chen
+
+* About me
+
+- 2014年开始使用docker
+- 专注于k8s on AWS
+- Cisco Senior SRE
+
+.image gopher-mat.png
+
+* Overview
+
+- 容器隔离 - Linux Namespaces
+- 容器资源限制 - Control Groups
+- 容器安全
+
+
+* Linux Namespaces
+
+    chroot - In UNIX, everything is a file.
+
+.image gopher-mat.png
+
+* 容器隔离 - Linux Namespaces
+
+- Precess-level
+- Precess-level
+- Precess-level
+
+查看进程所属的namespaces
+
+    [root@container ~]# ls -l /proc/$$/ns
+    total 0
+    lrwxrwxrwx. 1 root root 0 Jun 18 02:29 ipc -> ipc:[4026531839]
+    lrwxrwxrwx. 1 root root 0 Jun 18 02:29 mnt -> mnt:[4026531840]
+    lrwxrwxrwx. 1 root root 0 Jun 18 02:29 net -> net:[4026531956]
+    lrwxrwxrwx. 1 root root 0 Jun 18 02:29 pid -> pid:[4026531836]
+    lrwxrwxrwx. 1 root root 0 Jun 18 02:29 user -> user:[4026531837]
+    lrwxrwxrwx. 1 root root 0 Jun 18 02:17 uts -> uts:[4026532212]
+
+以ipc:[4026531839]为例，ipc是namespace的类型，4026531839是inode number，如果两个进程的ipc namespace的inode number一样，说明他们属于同一个namespace。这条规则对其他类型的namespace也同样适用。
+
+* Namespaces - Linux内核支持的namespaces
+
+- Mount namespaces CLONE_NEWNS Linux 2.4.19
+- UTS namespaces CLONE_NEWUTS Linux 2.6.19
+- IPC namespaces CLONE_NEWIPC Linux 2.6.19
+- PID namespaces CLONE_NEWPID Linux 2.6.24
+- Network namespaces CLONE_NEWNET Linux 2.6.24, completed in 2.6.29
+- User namespaces CLONE_NEWUSER Linux 2.6.23, completed in 3.8
+
+* Namespaces - chroot Vs Namespace
+
+chroot系统调用（通过修改根目录把用户jail到一个特定目录下）
+chroot提供了一种简单的隔离模式：chroot内部的文件系统无法访问外部的内容
+Linux Namespace是Linux提供的一种内核级别环境隔离的方法
+Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离机制
+
+* Namespace - 系统调用
+
+clone() – 用来创建一个新的进程，并可以通过设计上述参数达到隔离
+setns() – 把某进程加入到某个namespace
+unshare() – 使某进程脱离某个namespace
+
+* Namespace - clone系统调用
+
+.code namespace_uts.c
+
+* Namespace - setuns系统调用
+
+    int main(int argc, char *argv[])
+    {
+        int fd, ret;
+        if (argc < 2) {
+            printf("%s /proc/PID/ns/FILE\n", argv[0]);
+            return -1;
+        }
+        //获取namespace对应文件的描述符
+        fd = open(argv[1], O_RDONLY);
+        NOT_OK_EXIT(fd, "open");
+        //执行完setns后，当前进程将加入指定的namespace
+        //这里第二个参数为0，表示由系统自己检测fd对应的是哪种类型的namespace
+        ret = setns(fd, 0);
+        NOT_OK_EXIT(ret, "open");
+        //用一个新的bash来替换掉当前子进程
+        execlp("bash", "bash", (char *) NULL);
+        return 0;
+    }
+
+* Namespace - setuns系统调用
+
+Terminal A:
+
+    [root@bogon vagrant]# gcc nts.c  -o nts
+    [root@bogon vagrant]# ./nts
+    Parent - start a container!
+    Container - inside the container!
+    [root@container vagrant]# echo $$
+    3229
+    [root@container vagrant]# readlink /proc/3229/ns/uts
+    uts:[4026532210]
+
+* Namespace - setuns系统调用
+
+Terminal B:
+
+    [root@bogon vagrant]# hostname
+    bogon
+    [root@bogon vagrant]# readlink /proc/$$/ns/uts
+    uts:[4026531838]
+    [root@bogon vagrant]# ls
+    nts  nts.c  setns  systemcall_setns.c
+    [root@bogon vagrant]# ./setns /proc/3229/ns/uts
+    [root@container vagrant]# hostname
+    container
+
+* Namespace - unshare系统调用
+
+    int main(int argc, char *argv[])
+    {
+    ...
+    
+        if (flags == 0) {
+            usage(argv[0]);
+        }
+    
+        //执行完unshare函数后，当前进程就会退出当前的一个或多个类型的namespace,
+        //然后进入到一个或多个新创建的不同类型的namespace
+        ret = unshare(flags);
+        NOT_OK_EXIT(ret, "unshare");
+    
+        //用一个新的bash来替换掉当前子进程
+        execlp("bash", "bash", (char *) NULL);
+    
+        return 0;
+    }
+
+* Namespace - unshare系统调用
+
+    [root@bogon vagrant]# gcc leave.c -o unshare
+    [root@bogon vagrant]# readlink /proc/$$/uts
+    [root@bogon vagrant]# ls
+    leave.c  nts  nts.c  setns  systemcall_setns.c  unshare
+    [root@bogon vagrant]# ./nts
+    Parent - start a container!
+    Container - inside the container!
+    [root@container vagrant]# readlink /proc/$$/uts
+    [root@container vagrant]# readlink /proc/$$/ns/uts
+    uts:[4026532210]
+    [root@container vagrant]# ./unshare
+    Usage: ./unshare [optins]
+    Options are:
+        -i   unshare IPC namespace
+        -m   unshare mount namespace
+        -n   unshare network namespace
+        -p   unshare PID namespace
+        -u   unshare UTS namespace
+        -U   unshare user namespace
+    [root@container vagrant]# ./unshare  -u
+    [root@container vagrant]# readlink /proc/$$/ns/uts
+    uts:[4026532211]
+
+* Namespace - 总结
+
+- namespace的本质就是把原来所有进程全局共享的资源拆分成了很多个一组一组进程共享的资源
+- 当一个namespace里面的所有进程都退出时，namespace也会被销毁，所以抛开进程谈namespace没有意义
+- namespace就是进程的一个属性，属性值相同的一组进程就属于同一个namespace，跟这组进程之间有没有亲戚关系无关
+clone和unshare都有创建并加入新的namespace的功能，他们的主要区别是：
+- unshare是使当前进程加入新创建的namespace
+- clone是创建一个新的子进程，然后让子进程加入新的namespace
+- namespace没有嵌套关系，即不存在说一个namespace是另一个namespace的父namespace
+
+* Namespace - UTS
+
+隔离system identifiers：hostname/domainname
+
+.code namespace_uts.c
+
+* Namespace - UTS 
+
+    [root@localhost tmp]# ./ns_utc
+    Parent - start a container!
+    Container - inside the container!
+    [root@container tmp]# hostname
+    container
+    [root@container tmp]# uname -n
+    container
+    [root@container tmp]# exit
+    Parent - container stopped!
+    [root@localhost tmp]#
+
+* Namespace - IPC
+
+- IPC(Inter-Process Communication)，Unix/Linux下进程间通信的一种方式，包括共享内存、信号量、POSIX消息队列
+- IPC具备一个全局的ID
+- 启动IPC隔离需要在clone系统调用加上CLONE_NEWIPC
+
+* Namespace - IPC
+
+.code namespace_ipc.c
+
+* Namespace - IPC
+
+隔离IPC资源：POSIX消息队列
+
+    [root@localhost tmp]# ipcmk -Q
+    Message queue id: 0
+    [root@localhost tmp]# ipcs -q
+
+    ------ Message Queues --------
+    key        msqid      owner      perms      used-bytes   messages
+    0x60bb5e11 0          root       644        0            0
+    
+    [root@localhost tmp]# ./ns_ipc
+    Parent - start a container!
+    Container - inside the container!
+    [root@container tmp]# ipcs -q
+    
+    ------ Message Queues --------
+    key        msqid      owner      perms      used-bytes   messages
+
+* Namespace - IPC
+
+- 隔离IPC资源 - 不同PID namespace可以拥有相同的PID
+- 为什么容器内 `ps aux` 仍然显示host上的所有processes？
+
+* Namespace - PID
+
+.code namespace_pid.c
+
+* Namespace - PID
+
+- init PID为1，作为所有进程的父进程
+- shell里输入ps,top等，依然可以在看到宿主机上的进程，／proc
+- 需要文件系统隔离
+
+* Namespace - Mount
+
+- 隔离文件系统mount points 
+- 不同mount namespace里的process看到不同的文件系统
+
+* Namespace - Mount
+
+.code namespace_mount.c
+
+
+* Namespace - Network
+
+
+
+* 容器隔离 - Control Groups
+
+- cgroups是内核提供的功能，它约束process对CPU，memory，IO，network bandwith的使用
+- Docker支持创建容器时候使用cgoup来实现对容器的resource control
+例如， user space memeory - 500m, kernel space memory 50m, cpu share 512, blkioweith 400
+
+`docker run -it -m 500M --kernel-memory 50M --cpu-shares 512 --blkio-weight 400 --name ubuntu1 ubuntu bash` 
+
+
+* 容器安全
+
+* 容器安全模块
+
+.image security_model.png _ 800
+
+* 容器安全 - Linux kernel
+
+- Namespaces - PID, Mount, Network, IPC, UTC, User
+- Cgroups - 限制CPU，Memory, IO
+- Capabilities - 减少 root access，kernel 3.19.0.21支持36 capabilities 
+- Seccomp profiles - 限制kernel 系统调用（system calls）， 可控制300+ 系统调用
+- Special kernel modules， 包括AppArmor, SElinux ， 提供kernel资源提供细颗粒控制
+
+- Namespackes - PID, Mount
+
+`docker run -it --name ubuntu1 -v /usr:/ubuntu1 ubuntu bash`
+`docker run -it --name ubuntu2 -v /usr:/ubuntu2 ubuntu bash`
+ubuntu1 container:
+
+* CGroup
+
+- Linux CGroup全称Linux Control Group， 是Linux内核的一个功能，用来限制，控制与分离一个进程组群的资源（如CPU、内存、磁盘输入输出等）。
+- kernel 2.6.24
+
+* CGroup
+
+主要功能：
+
+- Resource limitation: 限制资源使用，比如内存使用上限以及文件系统的缓存限制
+- Prioritization: 优先级控制，比如：CPU利用和磁盘IO吞吐
+- Accounting: 一些审计或一些统计，主要目的是为了计费
+- Control: 挂起进程，恢复执行进程
+
+* CGroup
+
+实际使用：
+- 隔离一个进程集合（比如：nginx的所有进程），并限制他们所消费的资源，比如绑定CPU的核。
+- 为这组进程 分配其足够使用的内存
+- 为这组进程分配相应的网络带宽和磁盘存储限制
+- 限制访问某些设备（通过设置设备的白名单）
+
+*  Capabilities
+
+- root用户一般具备所有权限。Capabilities 提供对root用户的权限控制
+- Linux 3.19.0.21, Capabilities 可以管理36个capabilities - /usr/include/linux/capability.h (libcap-devel)
+- Docker在启动container的时候默认只开启了14个capabilities
+- Capabilities禁止了insert／remove kernel modules， system clock manipulation等
+
+* Seccomp
+
+- Linux kernel 特性限制process的系统调用
+- Docker使用Seccomp限制container的系统调用
+- Docker禁用了300+系统调用中的44个，e.g. mount, settimeofday
+- .link https://github.com/moby/moby/blob/master/profiles/seccomp/default.json  Docker Seccomp profile
+.image moby-project-logo.png
+
+* Seccomp
+
+Profile disabling chmod system call:
+
+    {
+      "defaultAction": "SCMP_ACT_ALLOW",
+      "syscalls": [
+        {
+          "name": "chmod",
+          "action": "SCMP_ACT_ERRNO"
+        }
+      ]
+    }
+
+验证：
+
+    ➜  present git:(master) ✗ docker run --rm -it --security-opt seccomp:/Users/chenjian/Developments/present/profile.json busybox chmod 400 /etc/hosts
+    chmod: /etc/hosts: Operation not permitted
+    ➜  present git:(master) ✗ docker run --rm -it busybox chmod 400 /etc/hosts
+
+
+Linux kernel Security modules - AppArmor, SELinux
+
+- 限制system resources的访问
+- 当AppArmor （ubuntu）应用于某个应用的时候，OS允许该应用只能访问security profile提及的文件与目录
+- SELinux（RHEL）是一个labeling system， 所有process, file, directory, network ports, devices 都关联到一个label。通过定义rule资源访问
+- SElinux 太难，AppArmor profiles相对容易写。但SELinux功能更强大
+
+* Docker Engine 安全访问
+
+- Docker engine 以daemon运行，默认监听 Unix socket： unix:///var/run/docker.socket
+- 可以通过http 或者 https 远程访问 Docker engine
+- http 不建议，尽量选择https
+- 建议sever端开启Authorization
+
+* Authorization plugin
+
+- Authorization plugin 提供基于userId， GroupId， command executed等访问控制
+- Auth Plugin 告知Docker daemon特定的命令是否允许被执行
+- e.g. Twistlock authz broker 
+
+* Container image signing
+
+- Container image通过签名来保证它来源于可信任的源
+- image的发布者负责签名并发布push到registry。
+
+* Container Image scanning
+
+- Docker Security Scan 扫描容器images并报告威胁
+- Scanning通过比对image的每个layer和CVE databases
+- 额外的二进制扫描来保证package没有被篡改
+- 通知同时会发送给image的publisher和user
+- 目前支持Docker hub和Docker cloud
+
+* Docker Security - 最佳实践
+
+Docker默认选项和安全策略足够满足大多数需求，以下是一些建议：
+- 不要在container内开启SSH，`docker exec`够用了
+- 不要使用来历不明的image
+- 用read-only Mount device和volume
+- 用non-root用户执行应用，尽量少用root
+- 如果需要root，限制root的权限，比如之前提到的Capabilities，Seccomp, SELinux/AppArmor
+- 保持OS更新，使用对容器优化的OS，CoreOS／Atomic（RH）
+- 不要保存密钥，特别是Dockerfile
+- 尽量使用Docker 官方镜像
+- 定期使用Container security scanning
+- 远程Docker daemon访问开启TLS
