@@ -296,9 +296,43 @@ ubuntu1 container:
 
 实际使用：
 - 隔离一个进程集合（比如：nginx的所有进程），并限制他们所消费的资源，比如绑定CPU的核。
-- 为这组进程 分配其足够使用的内存
+- 为某组进程 分配其足够使用的内存
 - 为这组进程分配相应的网络带宽和磁盘存储限制
 - 限制访问某些设备（通过设置设备的白名单）
+
+
+* CGroup
+CGroup子系统
+    [root@bogon vagrant]# mount -t cgroup
+cgroup on /sys/fs/cgroup/systemd type cgroup (rw,nosuid,nodev,noexec,relatime,xattr,release_agent=/usr/lib/    systemd/systemd-cgroups-agent,name=systemd)
+    cgroup on /sys/fs/cgroup/blkio type cgroup (rw,nosuid,nodev,noexec,relatime,blkio)
+    cgroup on /sys/fs/cgroup/cpuset type cgroup (rw,nosuid,nodev,noexec,relatime,cpuset)
+    cgroup on /sys/fs/cgroup/hugetlb type cgroup (rw,nosuid,nodev,noexec,relatime,hugetlb)
+    cgroup on /sys/fs/cgroup/cpu,cpuacct type cgroup (rw,nosuid,nodev,noexec,relatime,cpuacct,cpu)
+    cgroup on /sys/fs/cgroup/net_cls type cgroup (rw,nosuid,nodev,noexec,relatime,net_cls)
+    cgroup on /sys/fs/cgroup/perf_event type cgroup (rw,nosuid,nodev,noexec,relatime,perf_event)
+    cgroup on /sys/fs/cgroup/devices type cgroup (rw,nosuid,nodev,noexec,relatime,devices)
+    cgroup on /sys/fs/cgroup/memory type cgroup (rw,nosuid,nodev,noexec,relatime,memory)
+    cgroup on /sys/fs/cgroup/freezer type cgroup (rw,nosuid,nodev,noexec,relatime,freezer)
+
+* CGroup - 限制CPU
+
+deadloop.c
+
+    int main(void)
+    {
+        int i = 0;
+        for(;;) i++;
+        return 0;
+    }
+
+* CGroup - 限制CPU
+
+    mkdir /sys/fs/cgroup/cpu/deadloop
+    ls /sys/fs/cgroup/cpu/deadloop
+    cat /sys/fs/cgroup/cpu/deadloop/cpu.cfs_quota_us 
+    echo 20000 > /sys/fs/cgroup/cpu/deadloop/cpu.cfs_quota_us
+    echo PID >> /sys/fs/cgroup/cpu/deadloop/tasks
 
 *  Capabilities
 

@@ -244,25 +244,57 @@ CNM和CNI并不是网络实现，它们是网络规范和网络体系，关注�
 
 * 大二层
 
+- 利用三层网络中实现二层网络的扩展
+- 利用三层网络避免维护庞大的mac和arp表，arp表无需泛洪到全网，TOR交换机维护本地mac地址表
+- 二层过大导致的BUM（广播、单播、组播问题）：利用三层网络结合SDN避免
+
 大二层，大二层是将物理网卡和容器网络桥接到同一个Linux Bridge，容器网络可以接入Linux Bridge，也可以将容器网络接入容器网桥docker0，再把docker0桥接到Linux Bridge；使得容器网络和宿主机网络在同一个二层网络。常见实现方案host、MacVLAN。
 
 * NAT
 
 NAT方式，NAT是默认的Docker网络，利用iptables地址转换实现宿主机IP到容器的通信。容器对外IP都是宿主机的IP，NAT的性能损耗比较大；但只要宿主机之间三层IP可达，容器之间就可以通信。
 
-物理网卡和容器网络桥接到同一个Linux Bridge，容器网络可以接入Linux Bridge，也可以将容器网络接入容器网桥docker0，再把docker0桥接到Linux Bridge；使得容器网络和宿主机网络在同一个二层网络。常见实现方案
-- host
-- MacVLAN
+物理网卡和容器网络桥接到同一个Linux Bridge，容器网络可以接入Linux Bridge，也可以将容器网络接入容器网桥docker0，再把docker0桥接到Linux Bridge；使得容器网络和宿主机网络在同一个二层网络。常见实现方案：host，MacVLAN
 
 * 容器网络方案 - 隧道方案（Overlay Networking）
+
+目前在overlay技术领域有三大技术路线：VXLAN、NVGRE、STT，其中最火的就是VXLAN技术，包括vmware、cisco、h3c等多个虚拟化以及传统网络厂商，都是以VXLAN技术来构建自己的SDN解决方案。容器内基于overlay的解决方案有：
 
 - Weave：UDP广播，本机建立新的BR，通过PCAP互通
 - Open vSwitch（OVS）：基于VXLAN和GRE协议，但是性能方面损失比较严重
 - Flannel：UDP广播，VXLAN
 - Racher：IPsec
 
-隧道方案在IaaS层的网络中应用较多，随着节点规模的增长复杂度会提升，而且出了网络问题跟踪起来比较麻烦，大规模集群情况下需要考虑
+* 容器网络方案 - 隧道方案 - VXLAN
 
+VXLAN报文格式
+
+.image vxlan_frame_format.png _ 800
+
+* 容器网络方案 - 隧道方案 - VXLAN
+
+VXLAN报文是在原始的二层报文前面再封装一个新的报文，新的报文中和传统的以太网报文类似，拥有源目mac、源目ip等元组。当原始的二层报文来到vtep节点后会被封装上VXLAN包头（在VXLAN网络中把可以封装和解封装VXLAN报文的设备称为vtep，vtep可以是虚拟switch也可以是物理switch），打上VXLAN包头的报文到了目标的vtep后会将VXLAN包头解封装，并获取原始的二层报文。outer mac header以及outer ip header里面的相关元组信息都是vtep的信息，和原始的二层报文没有任何关系。所在数据包在源目vtep节点之间的传输和原始的二层报文是毫无关系的，依靠的是外层的包头完成。  
+除此之外还有几个字段需要关注：
+
+- 在VXLAN Header报文中封装了24bit的VXLAN ID（VNI）
+- 在UDP header里面有一个source port的字段，用于VXLAN网络节点之间ECMP的hash；
+- 在VXLAN Header里的reserved字段，作为保留字段，很多厂商都会加以运用来实现自己组网的一些特性。
+
+* 容器网络方案 - 隧道方案 - VXLAN
+
+二层报文转发
+
+.image vxlan_layer2.png
+
+Spine和Leaf节点之间是一个L3的网路，设备之间通过动态路由协议进行转发，并进行链路复杂。同一个vtep节点下，同一个subnet的两个主机直接进行转发，无需经过vtep去打VXLAN包头。不同的vtep下的同一个subnet通过VXLAN封装进行二层的扩展。
+
+* 容器网络方案 - 隧道方案 - VXLAN
+
+三层报文转发
+
+.image vxlan_layer3.png
+
+VXLAN的三层转发需要引入一个VXLAN三层网关的概念，两个不同subnet下的主机需要经过三层网关去路由.很多厂商的解决方案中三层网关集成在vtep上的，形成分布式网关的概念，所有的vtep上拥有所有subnet的网关，这样同一个vtep下主机间的流量无论是二层转发还是三层转发都会在本地完成.
 
 * 容器网络方案 - 路由方案
 

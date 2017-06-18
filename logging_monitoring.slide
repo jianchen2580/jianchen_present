@@ -28,13 +28,12 @@ Docker daemon自带默认的logging driver,此外，也可以定制或者使用�
 
 - none	No logs will be available for the container and docker logs will not return any output.	 
 - json-file	The logs are formatted as JSON. The default logging driver for Docker.	 
-syslog	Writes logging messages to the syslog facility. The syslog daemon must be running on the host - machine.	 
-journald	Writes log messages to journald. The journald daemon must be running on the host machine.- 	 
-gelf	Writes log messages to a Graylog Extended Log Format (GELF) endpoint such as Graylog or - Logstash.	 
-fluentd	Writes log messages to fluentd (forward input). The fluentd daemon must be running on the host - machine.	 
+- syslog	Writes logging messages to the syslog facility. The syslog daemon must be running on the host machine.	 
+- journald	Writes log messages to journald. The journald daemon must be running on the host machine.
+- gelf	Writes log messages to a Graylog Extended Log Format (GELF) endpoint such as Graylog or - Logstash.	- fluentd	Writes log messages to fluentd (forward input). The fluentd daemon must be running on the host machine.	 
 - awslogs	Writes log messages to Amazon CloudWatch Logs.	 
 - splunk	Writes log messages to splunk using the HTTP Event Collector.	 
-etwlogs	Writes log messages as Event Tracing for Windows (ETW) events. Only available on Windows - platforms.	 
+- etwlogs	Writes log messages as Event Tracing for Windows (ETW) events. Only available on Windows platforms.	 
 - gcplogs	Writes log messages to Google Cloud Platform (GCP) Logging.
 
 * Docker日志 - logging driver配置
@@ -46,18 +45,19 @@ etwlogs	Writes log messages as Event Tracing for Windows (ETW) events. Only avai
 
 logging driver可配置选项
     
-    {
-  "log-driver": "json-file",
-  "log-opts": [
-    "labels=production_status",
-    "env=os,customer"
-  ]
-    }
+  {
+    "log-driver": "json-file",
+    "log-opts": [
+      "labels=production_status",
+      "env=os,customer"
+    ]
+  }
 
 * 监控日志文件
 
 日志文件和容器是绑定的，因此需要有一个 agent 的角色来做这件事，还要考虑管道的可靠性问题。
 agent：
+
 - filebeat
 - fluentd
 
@@ -78,4 +78,3 @@ agent：
 
 - docker stats
 - CAdvisor
-- 
