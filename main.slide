@@ -1,14 +1,14 @@
-容器文件系统与安全
+容器基础技术与安全
 23 June 2017
-Tags: Docker, Filesystem, Namespace
+Tags: Docker, Namespace, CGroup，Security
 
 Jian Chen
-@sevenj2580
 
 * About me
 
 - 2014年开始使用docker
-- Cisco SRE
+- 专注于k8s on AWS
+- Cisco Senior SRE
 
 .image gopher-mat.png
 
@@ -18,24 +18,33 @@ Jian Chen
 - 容器隔离 - Control Groups
 - 容器安全
 
-* 容器隔离 - Linux Namespaces
-- Precess-level
 
 * Linux Namespaces
 
     chroot - In UNIX, everything is a file.
 
-
 .image gopher-mat.png
 
-* Namespaces
+* 容器隔离 - Linux Namespaces
 
-chroot系统调用（通过修改根目录把用户jail到一个特定目录下）
-chroot提供了一种简单的隔离模式：chroot内部的文件系统无法访问外部的内容
-Linux Namespace是Linux提供的一种内核级别环境隔离的方法
-Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离机制。
+- Precess-level
+- Precess-level
+- Precess-level
 
-* Namespaces
+查看进程所属的namespaces
+
+    [root@container ~]# ls -l /proc/$$/ns
+    total 0
+    lrwxrwxrwx. 1 root root 0 Jun 18 02:29 ipc -> ipc:[4026531839]
+    lrwxrwxrwx. 1 root root 0 Jun 18 02:29 mnt -> mnt:[4026531840]
+    lrwxrwxrwx. 1 root root 0 Jun 18 02:29 net -> net:[4026531956]
+    lrwxrwxrwx. 1 root root 0 Jun 18 02:29 pid -> pid:[4026531836]
+    lrwxrwxrwx. 1 root root 0 Jun 18 02:29 user -> user:[4026531837]
+    lrwxrwxrwx. 1 root root 0 Jun 18 02:17 uts -> uts:[4026532212]
+
+以ipc:[4026531839]为例，ipc是namespace的类型，4026531839是inode number，如果两个进程的ipc namespace的inode number一样，说明他们属于同一个namespace。这条规则对其他类型的namespace也同样适用。
+
+* Namespaces - Linux内核支持的namespaces
 
 - Mount namespaces CLONE_NEWNS Linux 2.4.19
 - UTS namespaces CLONE_NEWUTS Linux 2.6.19
@@ -44,13 +53,131 @@ Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离�
 - Network namespaces CLONE_NEWNET Linux 2.6.24, completed in 2.6.29
 - User namespaces CLONE_NEWUSER Linux 2.6.23, completed in 3.8
 
+* Namespaces
+
+chroot系统调用（通过修改根目录把用户jail到一个特定目录下）
+chroot提供了一种简单的隔离模式：chroot内部的文件系统无法访问外部的内容
+Linux Namespace是Linux提供的一种内核级别环境隔离的方法
+Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离机制
+
 * Namespace - 系统调用
 
 clone() – 用来创建一个新的进程，并可以通过设计上述参数达到隔离
-unshare() – 使某进程脱离某个namespace
 setns() – 把某进程加入到某个namespace
+unshare() – 使某进程脱离某个namespace
+
+* Namespace - clone系统调用
+
+.code namespace_uts.c
+
+* Namespace - setuns系统调用
+
+    int main(int argc, char *argv[])
+    {
+        int fd, ret;
+        if (argc < 2) {
+            printf("%s /proc/PID/ns/FILE\n", argv[0]);
+            return -1;
+        }
+        //获取namespace对应文件的描述符
+        fd = open(argv[1], O_RDONLY);
+        NOT_OK_EXIT(fd, "open");
+        //执行完setns后，当前进程将加入指定的namespace
+        //这里第二个参数为0，表示由系统自己检测fd对应的是哪种类型的namespace
+        ret = setns(fd, 0);
+        NOT_OK_EXIT(ret, "open");
+        //用一个新的bash来替换掉当前子进程
+        execlp("bash", "bash", (char *) NULL);
+        return 0;
+    }
+
+* Namespace - setuns系统调用
+
+Terminal A:
+
+    [root@bogon vagrant]# gcc nts.c  -o nts
+    [root@bogon vagrant]# ./nts
+    Parent - start a container!
+    Container - inside the container!
+    [root@container vagrant]# echo $$
+    3229
+    [root@container vagrant]# readlink /proc/3229/ns/uts
+    uts:[4026532210]
+
+* Namespace - setuns系统调用
+
+Terminal B:
+
+    [root@bogon vagrant]# hostname
+    bogon
+    [root@bogon vagrant]# readlink /proc/$$/ns/uts
+    uts:[4026531838]
+    [root@bogon vagrant]# ls
+    nts  nts.c  setns  systemcall_setns.c
+    [root@bogon vagrant]# ./setns /proc/3229/ns/uts
+    [root@container vagrant]# hostname
+    container
+
+* Namespace - unshare系统调用
+
+    int main(int argc, char *argv[])
+    {
+    ...
+    
+        if (flags == 0) {
+            usage(argv[0]);
+        }
+    
+        //执行完unshare函数后，当前进程就会退出当前的一个或多个类型的namespace,
+        //然后进入到一个或多个新创建的不同类型的namespace
+        ret = unshare(flags);
+        NOT_OK_EXIT(ret, "unshare");
+    
+        //用一个新的bash来替换掉当前子进程
+        execlp("bash", "bash", (char *) NULL);
+    
+        return 0;
+    }
+
+* Namespace - unshare系统调用
+
+    [root@bogon vagrant]# gcc leave.c -o unshare
+    [root@bogon vagrant]# readlink /proc/$$/uts
+    [root@bogon vagrant]# ls
+    leave.c  nts  nts.c  setns  systemcall_setns.c  unshare
+    [root@bogon vagrant]# ./nts
+    Parent - start a container!
+    Container - inside the container!
+    [root@container vagrant]# readlink /proc/$$/uts
+    [root@container vagrant]# readlink /proc/$$/ns/uts
+    uts:[4026532210]
+    [root@container vagrant]# ./unshare
+    Usage: ./unshare [optins]
+    Options are:
+        -i   unshare IPC namespace
+        -m   unshare mount namespace
+        -n   unshare network namespace
+        -p   unshare PID namespace
+        -u   unshare UTS namespace
+        -U   unshare user namespace
+    [root@container vagrant]# ./unshare  -u
+    [root@container vagrant]# readlink /proc/$$/ns/uts
+    uts:[4026532211]
+
+* Namespace - 总结
+
+- namespace的本质就是把原来所有进程全局共享的资源拆分成了很多个一组一组进程共享的资源
+- 当一个namespace里面的所有进程都退出时，namespace也会被销毁，所以抛开进程谈namespace没有意义
+- namespace就是进程的一个属性，属性值相同的一组进程就属于同一个namespace，跟这组进程之间有没有亲戚关系无关
+clone和unshare都有创建并加入新的namespace的功能，他们的主要区别是：
+- unshare是使当前进程加入新创建的namespace
+- clone是创建一个新的子进程，然后让子进程加入新的namespace
+- namespace没有嵌套关系，即不存在说一个namespace是另一个namespace的父namespace
+
+
 
 * Namespace - UTS
+
 隔离system identifiers：hostname/domainname
 
 .code namespace_uts.c
@@ -118,6 +245,10 @@ Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离�
 - 隔离文件系统mount points 
 - 不同mount namespace里的process看到不同的文件系统
 
+* Namespace - Network
+
+
+
 * 容器隔离 - Control Groups
 
 - cgroups是内核提供的功能，它约束process对CPU，memory，IO，network bandwith的使用
@@ -147,15 +278,34 @@ Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离�
 `docker run -it --name ubuntu2 -v /usr:/ubuntu2 ubuntu bash`
 ubuntu1 container:
 
-* Cgroups
+* CGroup
+
+- Linux CGroup全称Linux Control Group， 是Linux内核的一个功能，用来限制，控制与分离一个进程组群的资源（如CPU、内存、磁盘输入输出等）。
+- kernel 2.6.24
+
+* CGroup
+
+主要功能：
+
+- Resource limitation: 限制资源使用，比如内存使用上限以及文件系统的缓存限制
+- Prioritization: 优先级控制，比如：CPU利用和磁盘IO吞吐
+- Accounting: 一些审计或一些统计，主要目的是为了计费
+- Control: 挂起进程，恢复执行进程
+
+* CGroup
+
+实际使用：
+- 隔离一个进程集合（比如：nginx的所有进程），并限制他们所消费的资源，比如绑定CPU的核。
+- 为这组进程 分配其足够使用的内存
+- 为这组进程分配相应的网络带宽和磁盘存储限制
+- 限制访问某些设备（通过设置设备的白名单）
 
 *  Capabilities
 
 - root用户一般具备所有权限。Capabilities 提供对root用户的权限控制
-- Linux 3.19.0.21, Capabilities 可以管理36个capabilities - /usr/include/linux/capability.h
+- Linux 3.19.0.21, Capabilities 可以管理36个capabilities - /usr/include/linux/capability.h (libcap-devel)
 - Docker在启动container的时候默认只开启了14个capabilities
 - Capabilities禁止了insert／remove kernel modules， system clock manipulation等
-
 
 * Seccomp
 
