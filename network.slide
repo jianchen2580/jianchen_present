@@ -1,28 +1,43 @@
-Docker网络
+容器网络
 23 June 2017
-Tags: Docker, Network
+Tags: Docker, Networking
 
 Jian Chen
 
 * Overview
 
 - 相关技术
-- 容器网络方案
-- 容器安全
-- CNM & CNI阵营
+- 容器网络
 - Calico
 - Contiv
 
 * Linux虚拟网络设备
 
-- 网络的命名空间（namespace): 容器间的网络隔离
 - Veth pair：一对虚拟网络设备，一端发送的数据会由另外一端接受，常用于不同网络命名空间通信
 - TAP/TUN：用户态程序向内核协议栈注入数据的设备
 - Iptables/Netfilter：Netfilter负责在内核中执行各种挂接的规则（过滤、修改、丢弃等），运行在内核模式中；Iptables模式是在用户模式下运行的进程，负责协助维护内核中Netfilter的各种规则表；通过二者的配合来实现整个Linux网络协议栈中灵活的数据包处理机制
 - 网桥（docker0）: 网桥是一个二层网络设备，通过网桥可以将Linux支持的不同的端口连接起来
 - 路由：Linux系统包含一个完整的路由功能，当IP层在处理数据发送或转发的时候，通过路由表来决定发往哪里
 
-* 相关技术术语 - 网桥（Bridge）
+* Linux虚拟网络设备 - veth pair
+一对虚拟网络设备，一端发送的数据会由另外一端接受，常用于不同网络命名空间通信
+
+    # 创建veth pair
+    ip link add veth0 type veth peer name veth1
+    
+    # 将veth1放入另一个netns
+    ip link set veth1 netns newns
+
+* Linux虚拟网络设备 - TAP／TUN
+
+TAP/TUN设备是一种让用户态程序向内核协议栈注入数据的设备，TAP等同于一个以太网设备，工作在二层；而TUN则是一个虚拟点对点设备，工作在三层。
+
+    ip tuntap add tap0 mode tap
+    ip tuntap add tun0 mode tun
+   
+* Linux虚拟网络设备 - 网桥（Bridge）
+
+网桥是一个二层设备，工作在链路层，主要是根据MAC学习来转发数据到不同的port。
 
     # 创建网桥
     brctl addbr br0
@@ -31,19 +46,10 @@ Jian Chen
     # 查询网桥mac表
     brctl showmacs br0
 
-* 相关技术术语 - veth pair
+* Linux虚拟网络设备 - 路由
 
-    # 创建veth pair
-    ip link add veth0 type veth peer name veth1
-    
-    # 将veth1放入另一个netns
-    ip link set veth1 netns newns
+   ip route
 
-* 相关技术术语 - TAP／TUN
-
-    ip tuntap add tap0 mode tap
-    ip tuntap add tun0 mode tun
-    
 * 相关技术术语
 
 - IPAM：IP地址管理（分配），传统网络(DHCP)，容器网络IPAM，基于CIDR的IP地址段分配地或者精确为每一个容器分配IP
@@ -60,7 +66,6 @@ Jian Chen
 - 网络隔离
 - ACL
 - 对接SDN
-- ...
 
 * 容器网络
 
@@ -85,31 +90,150 @@ Jian Chen
 Container Network Interface (CNI)是由CoreOS发起的容器网络规范，是Kubernetes网络插件的基础。其基本思想为：Container Runtime在创建容器时，先创建好network namespace，然后调用CNI插件为这个netns配置网络，其后再启动容器内的进程。
 
 CNI插件包括两部分：
-CNI Plugin负责给容器配置网络，它包括两个基本的接口
-  配置网络: AddNetwork(net NetworkConfig, rt RuntimeConf) (types.Result, error)
-  清理网络: DelNetwork(net NetworkConfig, rt RuntimeConf) error
 IPAM Plugin负责给容器分配IP地址，主要实现包括host-local和dhcp。
+CNI Plugin负责给容器配置网络，它包括两个基本的接口
 
-* 容器网路 - CNI
+- 配置网络: AddNetwork(net NetworkConfig, rt RuntimeConf) (types.Result, error)
+- 清理网络: DelNetwork(net NetworkConfig, rt RuntimeConf) error
 
-.image CNI_model.png
+* 容器网络 - CNI
 
-* 容器网路 - CNM
+.image CNI_model.png _ 800
+
+* 容器网络 - CNI
+
+CNI插件均支持通过环境变量和标准输入传入参数：
+
+    $ echo '{"cniVersion": "0.3.1","name": "mynet","type": "macvlan","bridge": "cni0","isGateway": true,"ipMasq": true,"ipam": {"type": "host-local","subnet": "10.244.1.0/24","routes": [{ "dst": "0.0.0.0/0" }]}}' | sudo CNI_COMMAND=ADD CNI_NETNS=/var/run/netns/a CNI_PATH=./bin CNI_IFNAME=eth0 CNI_CONTAINERID=a CNI_VERSION=0.3.1 ./bin/bridge
+    $ echo '{"cniVersion": "0.3.1","type":"IGNORED", "name": "a","ipam": {"type": "host-local", "subnet":"10.1.2.3/24"}}' | sudo CNI_COMMAND=ADD CNI_NETNS=/var/run/netns/a CNI_PATH=./bin CNI_IFNAME=a CNI_CONTAINERID=a CNI_VERSION=0.3.1 ./bin/host-local
+
+* 容器网络 - CNI
+
+Bridge是最简单的CNI网络插件，它首先在Host创建一个网桥，然后再通过veth pair连接该网桥到container netns。
+注意，Bridge模式下，多主机网络通信需要额外配置主机路由。可以借助Flannel或者Quagga动态路由等来自动配置。
+配置示例:
+
+    {
+        "cniVersion": "0.3.0",
+        "name": "mynet",
+        "type": "bridge",
+        "bridge": "mynet0",
+        "isDefaultGateway": true,
+        "forceAddress": false,
+        "ipMasq": true,
+        "hairpinMode": true,
+        "ipam": {
+            "type": "host-local",
+            "subnet": "10.10.0.0/16"
+        }
+    }
+
+* 容器网络 - CNI
+
+DHCP插件是最主要的IPAM插件之一，用来通过DHCP方式给容器分配IP地址，在macvlan插件中也会用到DHCP插件。
+在使用DHCP插件之前，需要先启动dhcp daemon:
+
+    /opt/cni/bin/dhcp daemon &
+
+然后配置网络使用dhcp作为IPAM插件
+
+    {
+        ...
+        "ipam": {
+            "type": "dhcp",
+        }
+    }
+
+* 容器网络 - CNI
+
+host-local是最常用的CNI IPAM插件，用来给container分配IP地址。
+IPv4:
+
+    {
+        "ipam": {
+            "type": "host-local",
+            "subnet": "10.10.0.0/16",
+            "rangeStart": "10.10.1.20",
+            "rangeEnd": "10.10.3.50",
+            "gateway": "10.10.0.254",
+            "routes": [
+                { "dst": "0.0.0.0/0" },
+                { "dst": "192.168.0.0/16", "gw": "10.10.5.1" }
+            ],
+            "dataDir": "/var/my-orchestrator/container-ipam-state"
+        }
+    }
+
+IPv6: 略
+
+* 容器网络 - CNI
+
+- Kubernetes
+- Weave
+- Macvlan
+- Calico
+- Flannel
+- Contiv
+- Mesos CNI
+
+CNI的优势是兼容其他容器技术（e.g. rkt）及上层编排系统（Kubernetes & Mesos)，而且社区活跃势头迅猛，Kubernetes加上CoreOS主推；缺点（也是优点）是非Docker原生
+
+* 容器网络 - CNM
 
 .image cnm_model.jpg
+
+Container network model (CNM)是Docker的网络模型，主要由以下3部分组成：
 
 - Sandbox，包含容器网络栈的配置，包括Interface，路由表及DNS配置，对应的实现如：Linux Network Namespace；一个Sandbox可以包含多个Network；
 - Endpoint，做为Sandbox接入Network的介质，对应的实现如：veth pair、TAP；一个Endpoint只能属于一个Network，也只能属于一个Sandbox；
 - Network，一组可以相互通信的Endpoints；对应的实现如：Linux bridge、VLAN；Network有大量Endpoint资源组成。
 
-* 容器网路 - CNM - Libnetwork
+* 容器网络 - CNM - Libnetwork
 
 Libnetwork对于CNM的实现包括以下5类对象：
+
 - NetworkController
 - Network
 - Driver
 - Endpoint
 - sandbox
+
+* 容器网络 - CNM
+
+- Docker Swarm overlay
+- Macvlan & IP networkdrivers
+- Calico
+- Contiv
+- Weave
+
+Docker Libnetwork的优势就是原生，而且和Docker容器生命周期结合紧密；缺点也可以理解为是原生，被Docker“绑架”。
+
+* 容器网络 - CNM
+
+- NetworkController，对外提供分配及管理网络的APIs，Docker Libnetwork支持多个活动的网络driver，NetworkController允许绑定特定的driver到指定的网络；
+- Driver，网络驱动对用户而言是不直接交互的，它通过插件式的接入来提供最终网络功能的实现；Driver（包括IPAM）负责一个Network的管理，包括资源分配和回收。
+具体细节移步https://github.com/docker/libnetwork/blob/master/docs/design.md
+
+* Kubernetes网络
+
+官方插件：
+
+- kubenet：这是一个基于CNI bridge的网络插件（在bridge插件的基础上扩展了port mapping和traffic shaping），是目前推荐的默认插件
+- CNI：CNI网络插件，需要用户将网络配置放到/etc/cni/net.d目录中，并将CNI插件的二进制文件放入/opt/cni/bin
+
+第三方插件：
+
+- Flannel
+- Weave Net
+- Calico
+- OVS
+- Contiv
+
+* CNM & CNI阵营
+
+CNM和CNI并不是网络实现，它们是网络规范和网络体系，关注的是网络管理问题
+- CNM（Docker LibnetworkContainer Network Model） - Docker
+- CNI（Container NetworkInterface）- Google（Kuberenetes）、CoreOS - kubernetes + CoreOS
 
 * 容器网络方案
 
@@ -118,9 +242,11 @@ Libnetwork对于CNM的实现包括以下5类对象：
 - 隧道（Tunnel）方案 （Overlay VXLAN）
 - 路由方案
 
-* 大二层 + NAT
+* 大二层
 
 大二层，大二层是将物理网卡和容器网络桥接到同一个Linux Bridge，容器网络可以接入Linux Bridge，也可以将容器网络接入容器网桥docker0，再把docker0桥接到Linux Bridge；使得容器网络和宿主机网络在同一个二层网络。常见实现方案host、MacVLAN。
+
+* NAT
 
 NAT方式，NAT是默认的Docker网络，利用iptables地址转换实现宿主机IP到容器的通信。容器对外IP都是宿主机的IP，NAT的性能损耗比较大；但只要宿主机之间三层IP可达，容器之间就可以通信。
 
@@ -146,40 +272,6 @@ NAT方式，NAT是默认的Docker网络，利用iptables地址转换实现宿主
 路由方案一般是从3层或者2层实现隔离和跨主机容器互通的，出了问题相对容易排查。
 但是，Docker 1.9 以后，在决定容器网络方案还需考虑网络模型的”站队“问题，倒底是Docker的”CNM“，还是Google，CoreOS的”CNI“。
 
-* CNM & CNI阵营
-
-CNM和CNI并不是网络实现，它们是网络规范和网络体系，关注的是网络管理问题
-- CNM（Docker LibnetworkContainer Network Model） - Docker
-- CNI（Container NetworkInterface）- Google（Kuberenetes）、CoreOS
-
-* CNM
-
-- Docker Swarm overlay
-- Macvlan & IP networkdrivers
-- Calico
-- Contiv
-- Weave
-
-Docker Libnetwork的优势就是原生，而且和Docker容器生命周期结合紧密；缺点也可以理解为是原生，被Docker“绑架”。
-
-* CNM Docker网络管理
-
-- NetworkController，对外提供分配及管理网络的APIs，Docker Libnetwork支持多个活动的网络driver，NetworkController允许绑定特定的driver到指定的网络；
-- Driver，网络驱动对用户而言是不直接交互的，它通过插件式的接入来提供最终网络功能的实现；Driver（包括IPAM）负责一个Network的管理，包括资源分配和回收。
-具体细节移步https://github.com/docker/libnetwork/blob/master/docs/design.md
-
-* CNI
-
-- Kubernetes
-- Weave
-- Macvlan
-- Calico
-- Flannel
-- Contiv
-- Mesos CNI
-
-CNI的优势是兼容其他容器技术（e.g. rkt）及上层编排系统（Kubernetes & Mesos)，而且社区活跃势头迅猛，Kubernetes加上CoreOS主推；缺点（也是优点）是非Docker原生
-
 * Calico容器网络
 
 Calico是一个纯3层的数据中心网络方案，而且无缝集成像OpenStack这种IaaS云架构，能够提供可控的VM、容器、裸机之间的IP通信。
@@ -193,6 +285,14 @@ CNM和CNI两大阵营都扮演着比较重要的角色。
 - vRouter通过BGP协议负责把自己上运行的workload的路由信息像整个Calico网络内传播
 - 小规模部署可以直接互联，大规模下可通过指定的BGP route reflector来完成。
 - 基于iptables提供了丰富而灵活的网络Policy，保证通过各个节点上的ACLs来提供Workload的多租户隔离、安全组以及其他可达性限制等功能。
+
+* Calico核心组件
+
+.image calico_core.png _ 400
+- Felix，Calico Agent，跑在每台需要运行Workload的节点上，主要负责配置路由及ACLs等信息来确保Endpoint的连通状态；
+- etcd，分布式键值存储，主要负责网络元数据一致性，确保Calico网络状态的准确性；
+- BGP Client（BIRD）, 主要负责把Felix写入Kernel的路由信息分发到当前Calico网络，确保Workload间的通信的有效性；
+- BGP Route Reflector（BIRD），大规模部署时使用，摒弃所有节点互联的 mesh 模式，通过一个或者多个BGP Route Reflector来完成集中式的路由分发。
 
 * Calico - IP结构
 
@@ -208,27 +308,19 @@ workload之间的数据流量都是通过IP路由的方式完成互联
 
 * Calico - IP路由实现
 
-.image calico_ip_relize.png
+.image calico_ip_realize.png _ 900
 
 * Calico - 安全策略ACL
 
-.image calico_acl.
+.image calico_acl.png _ 900
 - ACLs Profile只要依靠iptables和ipset，可提供针对每个容器级别的规则定义
 - 通过iptabls查看对应的chain和filter
 
-* Calico核心组件
-
-.image calico_core.png _ 400
-- Felix，Calico Agent，跑在每台需要运行Workload的节点上，主要负责配置路由及ACLs等信息来确保Endpoint的连通状态；
-- etcd，分布式键值存储，主要负责网络元数据一致性，确保Calico网络状态的准确性；
-- BGP Client（BIRD）, 主要负责把Felix写入Kernel的路由信息分发到当前Calico网络，确保Workload间的通信的有效性；
-- BGP Route Reflector（BIRD），大规模部署时使用，摒弃所有节点互联的 mesh 模式，通过一个或者多个BGP Route Reflector来完成集中式的路由分发。
-
-* Calico L2全联接
+* Calico - L2全联接
 
 .image calico_l2.png _ 700
 
-* Calico L3
+* Calico - L3联接
 
 .image calico_l3.png _ 700
 
@@ -238,7 +330,7 @@ Contiv Netplugin 是来自思科的解决方案。编程语言为 Go。它基于
 
 * Contiv Netplugin核心组件
 
-.image contriv_core.png
+.image contriv_core.png _ 900
 
 * Contiv Netplugin核心组件
 
@@ -249,19 +341,21 @@ Contiv Netplugin 是来自思科的解决方案。编程语言为 Go。它基于
 
 * Contiv Netplugin 代码结构
 
-.image contriv_code.png _ 500
+.image contriv_code.png _ 800
 
 * Calico Vs Contiv
 
-.image calico_vs_contiv1.png
+* Calico Vs Contiv
+
+.image calico_vs_contiv1.png _ 800
 
 * Calico Vs Contiv
 
-.image calico_vs_contiv2.png
+.image calico_vs_contiv2.png _ 800
 
-* Calico Vs Contiv - 包转发
+* Calico Vs Contiv - 包转发 
 
-.image calico_vs_contiv_package.png
+.image calico_vs_contiv_package.png _ 800
 
 * Calico的优势
 
@@ -278,4 +372,7 @@ Contiv Netplugin 是来自思科的解决方案。编程语言为 Go。它基于
 - 代码规模不大，逻辑结构清晰，并发好，VLAN在公司内部有开发部署运维实践经验，稳定性经过生产环境验证
 - 京东基于相同的技术栈（OVS + VLAN）已支持10w+ 容器的运行。
 
-* 性能对比
+* Q&A
+
+.image gopher-mat.png
+
