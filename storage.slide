@@ -11,9 +11,11 @@ Jian Chen
 
 * Docker存储
 
-Docker在启动容器的时候，需要创建文件系统，为rootfs提供挂载点。最底层的引导文件系统bootfs主要包含 bootloader和kernel，bootloader主要是引导加载kernel，当kernel被加载到内存中后 bootfs就被umount了。 rootfs包含的就是典型 Linux 系统中的/dev，/proc，/bin，/etc等标准目录和文件。
+- bootfs + rootfs: Docker在启动容器的时候，需要创建文件系统，为rootfs提供挂载点。最底层的引导文件系统bootfs主要包含 bootloader和kernel，bootloader主要是引导加载kernel，当kernel被加载到内存中后 bootfs就被umount了。 rootfs包含的就是典型 Linux 系统中的/dev，/proc，/bin，/etc等标准目录和文件。
 
-Docker 模型的核心部分是有效利用分层镜像机制，镜像可以通过分层来进行继承，基于基础镜像（没有父镜像），可以制作各种具体的应用镜像。Docker1.10引入新的可寻址存储模型，使用安全内容哈希代替随机的UUID管理镜像。同时，Docker提供了迁移工具，将已经存在的镜像迁移到新模型上。不同 Docker 容器就可以共享一些基础的文件系统层，同时再加上自己独有的可读写层，大大提高了存储的效率。其中主要的机制就是分层模型和将不同目录挂载到同一个虚拟文件系统。
+- 分层镜像机制: Docker 模型的核心，镜像可以通过分层来进行继承，基于基础镜像（没有父镜像），可以制作各种具体的应用镜像。Docker1.10引入新的可寻址存储模型，使用安全内容哈希代替随机的UUID管理镜像。
+
+- 可读写层： 不同 Docker 容器就可以共享一些基础的文件系统层，同时再加上自己独有的可读写层，提高了存储的效率。
 
 * Docker存储
 
@@ -21,7 +23,7 @@ Docker 模型的核心部分是有效利用分层镜像机制，镜像可以通�
 
 * Docker存储 
 
-Docker有如下几种不同的drivers：
+Docker存储rivers：
 
 - AUFS
 - Device mapper
@@ -31,9 +33,9 @@ Docker有如下几种不同的drivers：
 
 * Docker存储 - AUFS
 
-AUFS（AnotherUnionFS）是一种Union FS，是文件级的存储驱动。所谓 UnionFS 就是把不同物理位置的目录合并 mount 到同一个目录中。
-只有最顶层可写，其它层只读，修改文件时，AUFS创建该文件副本，使用CoW将只读层复制到可写层修改，结果保存在可写层。
-**底下只读层是image**，可写层是container。
+AUFS（AnotherUnionFS）是一种Union FS，UnionFS 即把不同物理位置的目录合并 mount 到同一个目录中，文件级的存储驱动。
+
+底下只读层是image，可写层是container。只有最顶层可写，其它层只读，修改文件时，AUFS创建该文件副本，使用CoW将只读层复制到可写层修改，结果保存在可写层。
 
 * Docker存储 - AUFS
 
@@ -41,36 +43,52 @@ AUFS（AnotherUnionFS）是一种Union FS，是文件级的存储驱动。所谓
 
 * Docker存储 - AUFS
 
-* Docker存储 - AUFS
+镜像：
 
-容器挂载点(只有容器运行时才被加载)
-/var/lib/docker/aufs/mnt/$CONTAINER_ID/
+- /var/lib/docker/aufs/diff/：镜像的层及其内容存放的目录
+- /var/lib/docker/aufs/layers/：存储关于镜像和层叠放的元数据
 
-分支(和镜像不同的文件，只读活着读写)
-/var/lib/docker/aufs/diff/$CONTAINER_OR_IMAGE_ID/
+容器：
 
-镜像索引表(每个镜像引用镜像名)
-/var/lib/docker/aufs/layers/
-
-* Docker存储 - AUFS
-
-运行一个实例应用是删除一个文件/etc/shadow，看aufs的结果
-
-# docker run centos rm /etc/shadow
-# ls -la /var/lib/docker/aufs/diff/$(docker ps --no-trunc -lq)/etc
-
-total 8
-drwxr-xr-x 2 root root 4096 Sep  2 18:35 .
-drwxr-xr-x 5 root root 4096 Sep  2 18:35 ..
--r--r--r-- 2 root root    0 Sep  2 18:35 .wh.shadow
+- /var/lib/docker/aufs/mnt/$CONTAINER_ID/：正在运行的容器的挂载目录, 如果没有运行, 那么目录仍存在, 但是是空目录
+- /var/lib/docker/aufs/diff/$CONTAINER_OR_IMAGE_ID/：容器的元数据和各种配置文件存放的位置
+- /var/lib/docker/aufs/diff/： 存储容器的可写层, 当容器被删除时, 存放在此的可写层也被删除了
 
 * Docker存储 - AUFS
 
-- 虽然AUFS是Docker 第一版支持的存储方式，但到现在还没有加入内核主线( centos 无法直接使用)
-- 从原理分析看，AUFS mount() 方法很快，所以创建容器很快；读写访问都具有本机效率；顺序读写和随机读写的性能大于kvm；并且Docker的AUFS可以有效的使用存储和内存 。
+使用AUFS驱动删除文件
+
+AUFS存储驱动通过在容器层放一个whiteout file实现文件的删除. whiteout file会使只读镜像中的被覆盖的文件变得模糊不清(删除).
+
+.image AUFS_delete.png
+
+* Docker存储 - AUFS
+
+删除container内的/etc/shadow，aufs的结果：
+
+    # docker run centos rm /etc/shadow
+    # ls -la /var/lib/docker/aufs/diff/$(docker ps --no-trunc -lq)/etc
+    
+    total 8
+    drwxr-xr-x 2 root root 4096 Sep  2 18:35 .
+    drwxr-xr-x 5 root root 4096 Sep  2 18:35 ..
+    -r--r--r-- 2 root root    0 Sep  2 18:35 .wh.shadow
+
+* Docker存储 - AUFS
+
+优点
+
 - AUFS性能稳定，并且有大量生产部署及丰富的社区支持
-- 不支持rename系统调用，执行“copy”和“unlink”时，会导致失败。
-- 当写入大文件的时候(比如日志或者数据库等)动态mount多目录路径的问题,导致branch越多，查找文件的性能也就越慢。(解决办法:重要数据直接使用 - -v 参数挂载。)
+- 从原理分析看，AUFS mount() 方法很快，所以创建容器很快；读写访问都具有本机效率；顺序读写和随机读写的性能大于kvm；并且Docker的AUFS可以有效的使用存储和内存 
+
+
+* Docker存储 - AUFS
+缺点
+
+- AUFS在文件层面上进行操作, 所以哪怕一个文件只需修改一小部分, 整个文件都会被复制, 如果修改的文件很大或者处于较低的镜像层级, 显著影响读写性能.(只在一个文件第一次修改时会发生搜索和拷贝, 拷贝到容器层后就可以写了)
+- 虽然AUFS是Docker 第一版支持的存储方式，但到现在还没有加入内核主线(centos无法直接使用)
+- 不支持rename系统调用，调用rename系统调用（copy/unlink）时, 如果目录是非空的, 那么将返回错误EXDEV(cross-device link not permitted), 所以应用程序需要处理EXDEV
+- 动态mount多目录路径的问题,导致branch越多，查找文件的性能也就越慢。(解决办法: -v挂载)
 
 * Docker存储 - Device mapper
 
@@ -79,29 +97,41 @@ Device mapper是Linux内核2.6.9后支持的，提供的一种从逻辑设备到
 * Docker存储 - Device mapper
 
 - Snapshot是Lvm提供的一种特性，它可以在不中断服务运行的情况下为the origin（original device）创建一个虚拟快照(Snapshot)。Thin-Provisioning是一项利用虚拟化方法减少物理存储部署的技术。
--Thin-provisioning Snapshot是结合Thin-Provisioning和Snapshoting两种技术，允许多个虚拟设备同时挂载到一个数据卷以达到数据共享的目的
+- Thin-provisioning Snapshot是结合Thin-Provisioning和Snapshoting两种技术，允许多个虚拟设备同时挂载到一个数据卷以达到数据共享的目的
 
 * Docker存储 - Device mapper
 
 .image devicemapper.jpeg
 
-Device mapper是块级存储，所有的操作都是直接对块进行操作，而不是文件。Device mapper驱动会先在块设备上创建一个资源池，然后在资源池上创建一个带有文件系统的基本设备，所有镜像都是这个基本设备的快照，而容器则是镜像的快照。所以在容器里看到文件系统是资源池上基本设备的文件系统的快照，并没有为容器分配空间。当要写入一个新文件时，在容器的镜像内为其分配新的块并写入数据，这个叫用时分配。当要修改已有文件时，再使用CoW为容器快照分配块空间，将要修改的数据复制到在容器快照中新的块里再进行修改
+Device mapper是块级存储。Device mapper驱动会先在块设备上创建一个资源池，然后在资源池上创建一个带有文件系统的基本设备，所有镜像都是这个基本设备的快照，而容器则是镜像的快照。所以在容器里看到文件系统是资源池上基本设备的文件系统的快照，并没有为容器分配空间。写入一个文件时，在容器的镜像内为其分配新的块并写入数据，这个叫用时分配。修改已有文件时，再使用CoW为容器快照分配块空间，将要修改的数据复制到在容器快照中新的块里再进行修改
 
 * Docker存储 - Device mapper
 
+优点：
+
 - Device mapper文件系统兼容性比较好，并且存储为一个文件，减少了inode消耗。
+
+缺点：
+
 - 每次一个容器写数据都是一个新块，块必须从池中分配，真正写的时候是稀松文件,虽然它的利用率很高，但性能不好，因为额外增加了vfs开销。
 - 每个容器都有自己的块设备时，它们是真正的磁盘存储，所以当启动N个容器时，它都会从磁盘加载N次到内存中，消耗内存大。
 - Docker的Device mapper默认模式是loop-lvm，性能达不到生产要求。在生产环境推荐direct-lvm模式直接写原块设备，性能好。
 
-* Docker存储 - OverlayFS
+* Docker存储 - OverlayFS/OverlayFS2
 
 Overlay是Linux内核3.18后支持的，也是一种Union FS，和AUFS的多层不同的是Overlay只有两层：一个upper文件系统和一个lower文件系统，分别代表Docker的镜像层和容器层。当需要修改一个文件时，使用CoW将文件从只读的lower复制到可写的upper进行修改，结果也保存在upper层。在Docker中，底下的只读层就是image，可写层就是Container。结构如下图所示：
 
 .image overlayfs.jpeg
 
+* Docker存储 - OverlayFS
+
+优点：
+
 - 从kernel3.18进入主流Linux内核。设计简单，速度快，比AUFS和Device mapper速度快。在某些情况下，也比Btrfs速度快。是Docker存储方式选择的未来。因为OverlayFS只有两层，不是多层，所以OverlayFS “copy-up”操作快于AUFS。以此可以减少操作延时。
 - OverlayFS支持页缓存共享，多个容器访问同一个文件能共享一个页缓存，以此提高内存使用率。
+
+缺点：
+
 - OverlayFS消耗inode，随着镜像和容器增加，inode会遇到瓶颈。Overlay2能解决这个问题。在Overlay下，为了解决inode问题，可以考虑将/var/lib/docker挂在单独的文件系统上，或者增加系统inode设置。
 - 有兼容性问题。open(2)只完成部分POSIX标准，OverlayFS的某些操作不符合POSIX标准。例如： 调用fd1=open("foo", O_RDONLY) ，然后调用fd2=open("foo", O_RDWR) 应用期望fd1 和fd2是同一个文件。然后由于复制操作发生在第一个open(2)操作后，所以认为是两个不同的文件。
 - 不支持rename系统调用，执行“copy”和“unlink”时，将导致失败。
@@ -116,13 +146,3 @@ Overlay是Linux内核3.18后支持的，也是一种Union FS，和AUFS的多层�
 
 - 数据卷挂载提高性能
 - SSD，SSD，SSD (重要事情说三遍)
-
-* 共享存储
-
-有状态服务状态保持和数据持久化
-
-* 参见问题
-
-问题描述，DeviceMapper loop模式，Docker未将容器日志映射到宿主机，容器内部产生大量日志，导致Containers或者Local Volume逻辑使用100%，容器异常down掉。
-
-解决方案，容器日志本地存储、加强容器存储监控（docker version>=1.13.0，docker system df查看）、容器存储方案选择DeviceMapper direct并基于逻辑卷监控（Docker监控先行）。
