@@ -21,12 +21,20 @@ Jian Chen
 
 * Linux虚拟网络设备 - veth pair
 一对虚拟网络设备，一端发送的数据会由另外一端接受，常用于不同网络命名空间通信
+ 
+    # 创建network namespace
+    ip netns add blue
+    # list network namespace
+    ip netns list
 
     # 创建veth pair
     ip link add veth0 type veth peer name veth1
+    ip link list
     
     # 将veth1放入另一个netns
-    ip link set veth1 netns newns
+    ip link set veth1 netns blue
+    ip link list
+    ip netns exec blue ip link list
 
 * Linux虚拟网络设备 - TAP／TUN
 
