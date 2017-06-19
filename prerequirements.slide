@@ -1,4 +1,6 @@
 容器基础技术与安全
+
+DockerOne - Shanghai
 23 June 2017
 Tags: Docker, Namespace, CGroup，Security
 
@@ -7,8 +9,9 @@ Jian Chen
 * About me
 
 - 2014年开始使用docker
-- 专注于k8s on AWS
-- Cisco Senior SRE
+- 目前专注于k8s on AWS
+- 5 year+ Python/Go 开发 - Redhat
+- Senior SRE - Cisco
 
 .image gopher-mat.png
 
@@ -21,7 +24,8 @@ Jian Chen
 
 * Linux Namespaces
 
-chroot系统调用（通过修改根目录把用户jail到一个特定目录下）
+chroot系统调用：
+通过修改根目录把用户jail到一个特定目录下
 chroot提供了一种简单的隔离模式：chroot内部的文件系统无法访问外部的内容
 
     chroot - In UNIX, everything is a file.
@@ -372,7 +376,7 @@ Profile disabling chmod system call:
     ➜  present git:(master) ✗ docker run --rm -it busybox chmod 400 /etc/hosts
 
 
-Linux kernel Security modules - AppArmor, SELinux
+* Linux kernel Security modules - AppArmor, SELinux
 
 - 限制system resources的访问
 - 当AppArmor （ubuntu）应用于某个应用的时候，OS允许该应用只能访问security profile提及的文件与目录
@@ -395,7 +399,7 @@ Linux kernel Security modules - AppArmor, SELinux
 * Container image signing
 
 - Container image通过签名来保证它来源于可信任的源
-- image的发布者负责签名并发布push到registry。
+- image的发布者负责签名并发布push到registry
 
 * Container Image scanning
 
@@ -408,13 +412,17 @@ Linux kernel Security modules - AppArmor, SELinux
 * Docker Security - 最佳实践
 
 Docker默认选项和安全策略足够满足大多数需求，以下是一些建议：
-- 不要在container内开启SSH，`docker exec`够用了
+- 不要在container内开启SSH，用`docker exec`替代
 - 不要使用来历不明的image
 - 用read-only Mount device和volume
 - 用non-root用户执行应用，尽量少用root
 - 如果需要root，限制root的权限，比如之前提到的Capabilities，Seccomp, SELinux/AppArmor
 - 保持OS更新，使用对容器优化的OS，CoreOS／Atomic（RH）
-- 不要保存密钥，特别是Dockerfile
-- 尽量使用Docker 官方镜像
+- 不要在保存密钥，特别是Dockerfile,endpoint.sh
+- 尽量使用Docker官方镜像或者直接在基础镜像（OS）之上创建
 - 定期使用Container security scanning
 - 远程Docker daemon访问开启TLS
+
+* Q&A
+
+.image gopher-mat.png

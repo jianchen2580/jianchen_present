@@ -1,5 +1,8 @@
 容器网络
+
+DockerOne - Shanghai
 23 June 2017
+
 Tags: Docker, Networking
 
 Jian Chen
@@ -69,11 +72,11 @@ TAP/TUN设备是一种让用户态程序向内核协议栈注入数据的设备�
 
 * 容器网络需求
 
-- 一容器一IP
 - 多主机容器互联
+- 一容器一IP
 - 网络隔离
 - ACL
-- 对接SDN
+- SDN对接
 
 * 容器网络
 
@@ -85,13 +88,20 @@ TAP/TUN设备是一种让用户态程序向内核协议栈注入数据的设备�
 * 容器网络 - Host Network
 
 容器共享Host的network namespace，使用宿主机的网络协议栈。不需要额外的配置，容器就可以共享宿主的各种网络资源。
-优点
+优点:
+
 - 简单，不需要任何额外配置
 - 高效，没有NAT等额外的开销
-缺点
+
+缺点:
+
 - 没有任何的网络隔离
 - 容器和Host的端口号容易冲突
 - 容器内任何网络配置都会影响整个宿主机
+
+* 容器网络 - CNI
+
+.image CNI_model.png _ 800
 
 * 容器网络 - CNI
 
@@ -106,9 +116,22 @@ CNI Plugin负责给容器配置网络，它包括两个基本的接口
 
 * 容器网络 - CNI
 
-.image CNI_model.png _ 800
+CNI只要求在容器创建时为容器分配网络资源、删除容器时释放网络资源:
+
+.image CNI_call.png
+
+CNI实现与外界的交互都通过进程参数和环境变量传递，也只要求输出结果符合CNI规范即可，与实现语言无关。
+比如Calico早期版本就使用Python实现了CNI规范，为Kubernetes提供了网络实现。
 
 * 容器网络 - CNI
+
+常见的环境变量设置：
+
+CNI_COMMAND：调用指定CNI动作，ADD表示增加网卡，DEL表示释放网卡
+CNI_CONTAINERID：容器ID
+CNI_NETNS：容器网络命名空间文件位置
+CNI_ARGS：额外传递的参数
+CNI_IFNAME：设置的容器网卡名称，如eth0
 
 CNI插件均支持通过环境变量和标准输入传入参数：
 
@@ -184,7 +207,13 @@ IPv6: 略
 - Contiv
 - Mesos CNI
 
-CNI的优势是兼容其他容器技术（e.g. rkt）及上层编排系统（Kubernetes & Mesos)，而且社区活跃势头迅猛，Kubernetes加上CoreOS主推；缺点（也是优点）是非Docker原生
+优点：
+
+- CNI的优势是支持多种容器运行时，包括Docker、rkt、Mesos、Hyper等容器引擎都可以使用，而且社区活跃势头迅猛，Kubernetes加上CoreOS主推
+
+缺点（也是优点）：
+
+- 非Docker原生
 
 * 容器网络 - CNM
 
@@ -215,6 +244,10 @@ Libnetwork对于CNM的实现包括以下5类对象：
 - Weave
 
 Docker Libnetwork的优势就是原生，而且和Docker容器生命周期结合紧密；缺点也可以理解为是原生，被Docker“绑架”。
+
+* 容器网络 - CNM
+
+在CNM中，docker engine通过HTTP REST API调用网络实现，为容器配置网络。这些API接口涵盖网络管理、容器管理、创建endpoint等十几个接口。
 
 * 容器网络 - CNM
 
