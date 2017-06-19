@@ -15,11 +15,14 @@ Jian Chen
 * Overview
 
 - 容器隔离 - Linux Namespaces
-- 容器隔离 - Control Groups
+- 容器资源限制 - Control Groups
 - 容器安全
 
 
 * Linux Namespaces
+
+chroot系统调用（通过修改根目录把用户jail到一个特定目录下）
+chroot提供了一种简单的隔离模式：chroot内部的文件系统无法访问外部的内容
 
     chroot - In UNIX, everything is a file.
 
@@ -29,7 +32,7 @@ Jian Chen
 
 - Precess-level
 - Precess-level
-- Precess-level
+- Precess-level （重要事情说三遍）
 
 查看进程所属的namespaces
 
@@ -42,9 +45,13 @@ Jian Chen
     lrwxrwxrwx. 1 root root 0 Jun 18 02:29 user -> user:[4026531837]
     lrwxrwxrwx. 1 root root 0 Jun 18 02:17 uts -> uts:[4026532212]
 
-以ipc:[4026531839]为例，ipc是namespace的类型，4026531839是inode number，如果两个进程的ipc namespace的inode number一样，说明他们属于同一个namespace。这条规则对其他类型的namespace也同样适用。
+- ipc:[4026531839]为例，ipc是namespace的类型，4026531839是inode number
+- 如果两个进程的ipc namespace的inode number一样，说明他们属于同一个namespace
 
 * Namespaces - Linux内核支持的namespaces
+
+Linux Namespace是Linux提供的一种内核级别环境隔离的方法
+Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离机制
 
 - Mount namespaces CLONE_NEWNS Linux 2.4.19
 - UTS namespaces CLONE_NEWUTS Linux 2.6.19
@@ -53,18 +60,13 @@ Jian Chen
 - Network namespaces CLONE_NEWNET Linux 2.6.24, completed in 2.6.29
 - User namespaces CLONE_NEWUSER Linux 2.6.23, completed in 3.8
 
-* Namespaces
-
-chroot系统调用（通过修改根目录把用户jail到一个特定目录下）
-chroot提供了一种简单的隔离模式：chroot内部的文件系统无法访问外部的内容
-Linux Namespace是Linux提供的一种内核级别环境隔离的方法
-Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离机制
-
 * Namespace - 系统调用
 
-clone() – 用来创建一个新的进程，并可以通过设计上述参数达到隔离
-setns() – 把某进程加入到某个namespace
-unshare() – 使某进程脱离某个namespace
+Namespace涉及以下三个系统调用
+
+- clone 用来创建一个新的进程，并可以通过设计上述参数达到隔离
+- setns 把某进程加入到某个namespace
+- unshare 使某进程脱离某个namespace
 
 * Namespace - clone系统调用
 
@@ -91,7 +93,7 @@ Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离�
         return 0;
     }
 
-* Namespace - setuns系统调用
+* Namespace - setns系统调用
 
 Terminal A:
 
@@ -104,7 +106,7 @@ Terminal A:
     [root@container vagrant]# readlink /proc/3229/ns/uts
     uts:[4026532210]
 
-* Namespace - setuns系统调用
+* Namespace - setns系统调用
 
 Terminal B:
 
@@ -166,15 +168,15 @@ Terminal B:
 
 * Namespace - 总结
 
-- namespace的本质就是把原来所有进程全局共享的资源拆分成了很多个一组一组进程共享的资源
-- 当一个namespace里面的所有进程都退出时，namespace也会被销毁，所以抛开进程谈namespace没有意义
-- namespace就是进程的一个属性，属性值相同的一组进程就属于同一个namespace，跟这组进程之间有没有亲戚关系无关
+- namespace的本质就是把原来所有进程全局共享的资源拆分成了多个进程组间共享的资源
+- 当一个namespace里面的所有进程都退出时，namespace也会被销毁
+- namespace就是进程的一个属性，属性值相同的一组进程就属于同一个namespace
+- namespace没有嵌套关系，即不存在一个namespace是另一个namespace的父namespace
+
 clone和unshare都有创建并加入新的namespace的功能，他们的主要区别是：
+
 - unshare是使当前进程加入新创建的namespace
 - clone是创建一个新的子进程，然后让子进程加入新的namespace
-- namespace没有嵌套关系，即不存在说一个namespace是另一个namespace的父namespace
-
-
 
 * Namespace - UTS
 
@@ -248,15 +250,71 @@ clone和unshare都有创建并加入新的namespace的功能，他们的主要�
 * Namespace - Network
 
 
+* 容器资源限制 - Control Groups
 
-* 容器隔离 - Control Groups
+- Linux CGroup全称Linux Control Group， 是Linux内核的一个功能，用来限制，控制与分离一个进程组群的资源（如CPU、内存、磁盘输入输出等）。
+- kernel 2.6.24
 
-- cgroups是内核提供的功能，它约束process对CPU，memory，IO，network bandwith的使用
-- Docker支持创建容器时候使用cgoup来实现对容器的resource control
+* 容器资源限制 - Control Groups
+
+主要功能：
+
+- Resource limitation: 限制资源使用，比如内存使用上限以及文件系统的缓存限制
+- Prioritization: 优先级控制，比如：CPU利用和磁盘IO吞吐
+- Accounting: 一些审计或一些统计，主要目的是为了计费
+- Control: 挂起进程，恢复执行进程
+
+* 容器资源限制 - Control Groups
+
+实际使用：
+- 隔离一个进程集合（比如：nginx的所有进程），并限制他们所消费的资源，比如绑定CPU的核。
+- 为某组进程 分配其足够使用的内存
+- 为这组进程分配相应的网络带宽和磁盘存储限制
+- 限制访问某些设备（通过设置设备的白名单）
+
+* 容器资源限制 - Control Groups
+
+CGroup子系统
+
+    [root@bogon vagrant]# mount -t cgroup
+    cgroup on /sys/fs/cgroup/systemd type cgroup (rw,nosuid,nodev,noexec,relatime,xattr,release_agent=/usr/lib/    systemd/systemd-cgroups-agent,name=systemd)
+    cgroup on /sys/fs/cgroup/blkio type cgroup (rw,nosuid,nodev,noexec,relatime,blkio)
+    cgroup on /sys/fs/cgroup/cpuset type cgroup (rw,nosuid,nodev,noexec,relatime,cpuset)
+    cgroup on /sys/fs/cgroup/hugetlb type cgroup (rw,nosuid,nodev,noexec,relatime,hugetlb)
+    cgroup on /sys/fs/cgroup/cpu,cpuacct type cgroup (rw,nosuid,nodev,noexec,relatime,cpuacct,cpu)
+    cgroup on /sys/fs/cgroup/net_cls type cgroup (rw,nosuid,nodev,noexec,relatime,net_cls)
+    cgroup on /sys/fs/cgroup/perf_event type cgroup (rw,nosuid,nodev,noexec,relatime,perf_event)
+    cgroup on /sys/fs/cgroup/devices type cgroup (rw,nosuid,nodev,noexec,relatime,devices)
+    cgroup on /sys/fs/cgroup/memory type cgroup (rw,nosuid,nodev,noexec,relatime,memory)
+    cgroup on /sys/fs/cgroup/freezer type cgroup (rw,nosuid,nodev,noexec,relatime,freezer)
+
+* 容器资源限制 - Control Groups
+
+deadloop.c
+
+    int main(void)
+    {
+        int i = 0;
+        for(;;) i++;
+        return 0;
+    }
+
+* 容器资源限制 - Control Groups
+
+限制CPU使用：
+
+    mkdir /sys/fs/cgroup/cpu/deadloop
+    ls /sys/fs/cgroup/cpu/deadloop
+    cat /sys/fs/cgroup/cpu/deadloop/cpu.cfs_quota_us 
+    echo 20000 > /sys/fs/cgroup/cpu/deadloop/cpu.cfs_quota_us
+    echo PID >> /sys/fs/cgroup/cpu/deadloop/tasks
+
+* 容器资源限制 - Control Groups
+
+Docker支持创建容器时候使用cgoup来实现对容器的resource control
 例如， user space memeory - 500m, kernel space memory 50m, cpu share 512, blkioweith 400
 
-`docker run -it -m 500M --kernel-memory 50M --cpu-shares 512 --blkio-weight 400 --name ubuntu1 ubuntu bash` 
-
+    docker run -it -m 500M --kernel-memory 50M --cpu-shares 512 --blkio-weight 400 --name ubuntu1 ubuntu bash
 
 * 容器安全
 
@@ -277,62 +335,6 @@ clone和unshare都有创建并加入新的namespace的功能，他们的主要�
 `docker run -it --name ubuntu1 -v /usr:/ubuntu1 ubuntu bash`
 `docker run -it --name ubuntu2 -v /usr:/ubuntu2 ubuntu bash`
 ubuntu1 container:
-
-* CGroup
-
-- Linux CGroup全称Linux Control Group， 是Linux内核的一个功能，用来限制，控制与分离一个进程组群的资源（如CPU、内存、磁盘输入输出等）。
-- kernel 2.6.24
-
-* CGroup
-
-主要功能：
-
-- Resource limitation: 限制资源使用，比如内存使用上限以及文件系统的缓存限制
-- Prioritization: 优先级控制，比如：CPU利用和磁盘IO吞吐
-- Accounting: 一些审计或一些统计，主要目的是为了计费
-- Control: 挂起进程，恢复执行进程
-
-* CGroup
-
-实际使用：
-- 隔离一个进程集合（比如：nginx的所有进程），并限制他们所消费的资源，比如绑定CPU的核。
-- 为某组进程 分配其足够使用的内存
-- 为这组进程分配相应的网络带宽和磁盘存储限制
-- 限制访问某些设备（通过设置设备的白名单）
-
-
-* CGroup
-CGroup子系统
-    [root@bogon vagrant]# mount -t cgroup
-cgroup on /sys/fs/cgroup/systemd type cgroup (rw,nosuid,nodev,noexec,relatime,xattr,release_agent=/usr/lib/    systemd/systemd-cgroups-agent,name=systemd)
-    cgroup on /sys/fs/cgroup/blkio type cgroup (rw,nosuid,nodev,noexec,relatime,blkio)
-    cgroup on /sys/fs/cgroup/cpuset type cgroup (rw,nosuid,nodev,noexec,relatime,cpuset)
-    cgroup on /sys/fs/cgroup/hugetlb type cgroup (rw,nosuid,nodev,noexec,relatime,hugetlb)
-    cgroup on /sys/fs/cgroup/cpu,cpuacct type cgroup (rw,nosuid,nodev,noexec,relatime,cpuacct,cpu)
-    cgroup on /sys/fs/cgroup/net_cls type cgroup (rw,nosuid,nodev,noexec,relatime,net_cls)
-    cgroup on /sys/fs/cgroup/perf_event type cgroup (rw,nosuid,nodev,noexec,relatime,perf_event)
-    cgroup on /sys/fs/cgroup/devices type cgroup (rw,nosuid,nodev,noexec,relatime,devices)
-    cgroup on /sys/fs/cgroup/memory type cgroup (rw,nosuid,nodev,noexec,relatime,memory)
-    cgroup on /sys/fs/cgroup/freezer type cgroup (rw,nosuid,nodev,noexec,relatime,freezer)
-
-* CGroup - 限制CPU
-
-deadloop.c
-
-    int main(void)
-    {
-        int i = 0;
-        for(;;) i++;
-        return 0;
-    }
-
-* CGroup - 限制CPU
-
-    mkdir /sys/fs/cgroup/cpu/deadloop
-    ls /sys/fs/cgroup/cpu/deadloop
-    cat /sys/fs/cgroup/cpu/deadloop/cpu.cfs_quota_us 
-    echo 20000 > /sys/fs/cgroup/cpu/deadloop/cpu.cfs_quota_us
-    echo PID >> /sys/fs/cgroup/cpu/deadloop/tasks
 
 *  Capabilities
 
