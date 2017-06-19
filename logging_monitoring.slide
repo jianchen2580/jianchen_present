@@ -7,14 +7,11 @@ Jian Chen
 * Overview
 
 - Docker日志
+- Docker日志 - kubernetes
 - Docker监控
+- Docker监控 - kubernetes
 
-* Docker日志
-
-- 采集
-- 存储
-
-* Docker日志 - 采集办法
+* Docker日志 - 采集
 
 - docker 自带的logging driver
 - 监控日志文件，并通过管道转出数据
@@ -24,7 +21,7 @@ Jian Chen
 
 Docker daemon自带默认的logging driver,此外，也可以定制或者使用其它自带的logging driver。
 
-* Docker默认支持的logging driver
+* Docker日志 - 默认logging driver
 
 - none	No logs will be available for the container and docker logs will not return any output.	 
 - json-file	The logs are formatted as JSON. The default logging driver for Docker.	 
@@ -38,43 +35,160 @@ Docker daemon自带默认的logging driver,此外，也可以定制或者使用�
 
 * Docker日志 - logging driver配置
 
+syslog driver:
+
     /etc/docker/daemon.json
     {
       "log-driver": "syslog"
+      "log-opts":  {
+      "syslog": "udp://1.2.3.4:1111"
+      }
     }
+或者在启动container的时候指定：
 
-logging driver可配置选项
-    
-  {
-    "log-driver": "json-file",
-    "log-opts": [
-      "labels=production_status",
-      "env=os,customer"
-    ]
-  }
+    docker run \
+          -–log-driver syslog –-log-opt syslog-address=udp://1.2.3.4:1111 \
+          alpine echo hello world
 
-* 监控日志文件
+* Docker日志 - 监控日志文件
 
-日志文件和容器是绑定的，因此需要有一个 agent 的角色来做这件事，还要考虑管道的可靠性问题。
-agent：
+日志文件和容器是绑定的，因此需要 agent监控日志文件变化:
 
 - filebeat
 - fluentd
+- logstash
 
-* 容器内进程自己写出日志
+* Docker日志 - 容器内进程
 
 - 进程直接写出，例如log4j2直接指定Appender
 - 映射日志volume （dev/log）进容器
+
 不推荐在集群环境下使用：
+
 - 进程直接写出，控制权交给了业务方，对业务不透明，可控性降低，同时暴露集群结构给上层
 - 容器内进程直接写文件系统，隔离性减弱，单点问题追踪困难
 
-* Docker日志存储
+* Docker日志 - kubernetes
 
-- ElasticSearch
-- InfluxDB
+ELK日志收集、处理和搜索:
+
+- Logstash（或者Fluentd）负责收集日志
+- Elasticsearch存储日志并提供搜索
+- Kibana负责日志查询和展示
+
+Kubernetes默认使用fluentd（以DaemonSet的方式启动）来收集日志，并将收集的日志发送给elasticsearch。
+
+.image elkstack.png
+
+* Docker日志 - kubernetes
+
+在使用cluster/kube-up.sh部署集群的时候，可以设置KUBE_LOGGING_DESTINATION环境变量自动部署Elasticsearch和Kibana，并使用fluentd收集日志(配置参考addons/fluentd-elasticsearch)：+
+
+    KUBE_LOGGING_DESTINATION=elasticsearch
+    KUBE_ENABLE_NODE_LOGGING=true
+    cluster/kube-up.sh
+
+如果使用GCE或者GKE的话，还可以将日志发送给Google Cloud Logging，并可以集成Google Cloud Storage和BigQuery。
+如果需要集成其他的日志方案，还可以自定义docker的log driver，将日志发送到splunk或者awslogs等。
+
+* Docker日志 - kubernetes - 应用日志收集
+
+- Logstash: 基于JDK，启动就要消耗500M内存，不推荐
+- Filebeat：经测试单独启动Filebeat容器大约会消耗12M内存，推荐
+
+* Docker日志 - kubernetes - 应用日志收集
+
+Kubernetes官方提供了EFK的日志收集解决方案，局限有：
+
+- 所有日志都必须是out前台输出，真实业务场景中无法保证所有日志都在前台输出
+- 只能有一个日志输出文件，而真实业务场景中往往有多个日志输出文件
+- Fluentd并不是被所有人接受，比如有些人偏好Logstash
+- 如果已经具备ELK集群， 额外为kubernetes上做一个日志收集服务太浪费
+
+* Docker日志 - kubernetes - 应用日志收集
+
+每个app的镜像中都集成日志收集组件
+
+- 优点：部署方便，kubernetes的yaml文件无须特别配置，可以为每个app自定义日志收集配置  
+- 缺点：强耦合，不方便应用和日志收集组件升级和维护且会导致镜像过大
+
+单独创建一个日志收集组件跟app的容器一起运行在同一个pod中
+
+- 优点：低耦合，扩展性强，方便维护和升级 
+- 缺点：需要对kubernetes的yaml文件进行单独配置，略显繁琐
+
+所有的Pod的日志都挂载到宿主机上，每台主机上单独起一个日志收集Pod
+
+- 优点：完全解耦，性能最高，管理起来最方便 
+- 缺点：需要统一日志收集规则，目录和输出方式
+
+* Docker日志 - kubernetes - 应用日志收集
+
+基于Filebeat的解决方案
+
+.image filebeat-log-collector.jpg _ 800
+
+* Docker日志 - kubernetes - 应用日志收集
+
+App的logs目录挂载到filebeat的／log目录下
+
+    ---
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: filebeat-config
+    data:
+      filebeat.yml: |
+        filebeat.prospectors:
+        - input_type: log
+          paths:
+            - "/log/*"
+            - "/log/usermange/common/*"
+        output.elasticsearch:
+          hosts: ["172.23.5.255:9200"]
+        username: "elastic"
+        password: "changeme"
+        index: "filebeat-test"
+
+剩下的交给ElasticSearch和Kibana
 
 * Docker监控
 
-- docker stats
-- CAdvisor
+- 单机监控：cAdvisor
+- 集群资源监控：Heapster
+- 时间序列数据库：InfluxDB
+- 时间序列数据库：Prometheus
+- 可视化：Grafana
+
+* Docker监控 - cAdvisor
+
+cAdvisor是一个来自Google的容器监控工具，也是kubelet内置的容器资源收集工具。它会自动收集本机容器CPU、内存、网络和文件系统的资源占用情况，并对外提供cAdvisor原生的API（默认端口为--cadvisor-port=4194）。
+
+.image cadvisor.png
+
+* Docker监控 - cAdvisor
+
+cAdvisor只提供了单机的容器资源占用情况，而Heapster则提供了整个集群的资源监控，并支持持久化数据存储到InfluxDB、Google Cloud Monitoring或者其他的存储后端。此外，Heapster的/metrics API提供了Prometheus格式的数据。
+Heapster从kubelet提供的API采集节点和容器的资源占用：
+
+.image heapster.png
+
+* Docker监控 - Prometheus
+
+Prometheus是另外一个监控和时间序列数据库，并且还提供了告警的功能。它提供了强大的查询语言和HTTP接口，也支持将数据导出到Grafana中展示。+
+
+使用Prometheus监控Kubernetes需要配置好数据源，一个简单的示例是: 
+
+.link https://gist.github.com/jianchen2580/49c6206965ef7b6b833190c4ffe6c617 prometheus.yml 
+
+
+* Docker监控 - Prometheus
+
+.image prometheus.jpg _ 800
+
+* Docker监控 - Prometheus
+
+推荐使用来以下工具部署和管理Prometheus：
+
+.link https://github.com/coreos/prometheus-operator Prometheus Operator
+.link https://github.com/kubernetes/charts/tree/master/stable/prometheus Prometheus Chart
