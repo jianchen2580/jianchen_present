@@ -30,7 +30,7 @@ chroot提供了一种简单的隔离模式：chroot内部的文件系统无法�
 
     chroot - In UNIX, everything is a file.
 
-.image gopher-mat.png
+.image gopher-mat.png _ 400
 
 * 容器隔离 - Linux Namespaces
 
@@ -57,18 +57,18 @@ chroot提供了一种简单的隔离模式：chroot内部的文件系统无法�
 Linux Namespace是Linux提供的一种内核级别环境隔离的方法
 Linux Namespace提供了对UTS、IPC、mount、PID、network、User等的隔离机制
 
-- Mount namespaces CLONE_NEWNS Linux 2.4.19
-- UTS namespaces CLONE_NEWUTS Linux 2.6.19
-- IPC namespaces CLONE_NEWIPC Linux 2.6.19
-- PID namespaces CLONE_NEWPID Linux 2.6.24
-- Network namespaces CLONE_NEWNET Linux 2.6.24, completed in 2.6.29
-- User namespaces CLONE_NEWUSER Linux 2.6.23, completed in 3.8
+- Mount namespaces: CLONE_NEWNS (Linux 2.4.19)
+- UTS namespaces: CLONE_NEWUTS (Linux 2.6.19)
+- IPC namespaces: CLONE_NEWIPC (Linux 2.6.19)
+- PID namespaces: CLONE_NEWPID (Linux 2.6.24)
+- Network namespaces: CLONE_NEWNET (Linux 2.6.24, completed in 2.6.29)
+- User namespaces: CLONE_NEWUSER (Linux 2.6.23, completed in 3.8)
 
 * Namespace - 系统调用
 
 Namespace涉及以下三个系统调用
 
-- clone 用来创建一个新的进程，并可以通过设计上述参数达到隔离
+- clone 用来创建一个新的进程，可以通过上述常量参数达到隔离
 - setns 把某进程加入到某个namespace
 - unshare 使某进程脱离某个namespace
 
@@ -76,7 +76,7 @@ Namespace涉及以下三个系统调用
 
 .code namespace_uts.c
 
-* Namespace - setuns系统调用
+* Namespace - setns系统调用
 
     int main(int argc, char *argv[])
     {
@@ -118,8 +118,6 @@ Terminal B:
     bogon
     [root@bogon vagrant]# readlink /proc/$$/ns/uts
     uts:[4026531838]
-    [root@bogon vagrant]# ls
-    nts  nts.c  setns  systemcall_setns.c
     [root@bogon vagrant]# ./setns /proc/3229/ns/uts
     [root@container vagrant]# hostname
     container
@@ -147,14 +145,10 @@ Terminal B:
 
 * Namespace - unshare系统调用
 
-    [root@bogon vagrant]# gcc leave.c -o unshare
-    [root@bogon vagrant]# readlink /proc/$$/uts
-    [root@bogon vagrant]# ls
-    leave.c  nts  nts.c  setns  systemcall_setns.c  unshare
+    [root@bogon vagrant]# gcc systemcall_unshare.c -o unshare
     [root@bogon vagrant]# ./nts
     Parent - start a container!
     Container - inside the container!
-    [root@container vagrant]# readlink /proc/$$/uts
     [root@container vagrant]# readlink /proc/$$/ns/uts
     uts:[4026532210]
     [root@container vagrant]# ./unshare
@@ -170,16 +164,16 @@ Terminal B:
     [root@container vagrant]# readlink /proc/$$/ns/uts
     uts:[4026532211]
 
-* Namespace - 总结
+* Namespace - 小结
 
 - namespace的本质就是把原来所有进程全局共享的资源拆分成了多个进程组间共享的资源
 - 当一个namespace里面的所有进程都退出时，namespace也会被销毁
 - namespace就是进程的一个属性，属性值相同的一组进程就属于同一个namespace
 - namespace没有嵌套关系，即不存在一个namespace是另一个namespace的父namespace
 
-clone和unshare都有创建并加入新的namespace的功能，他们的主要区别是：
+clone和setns都有创建并加入新的namespace的功能，他们的主要区别是：
 
-- unshare是使当前进程加入新创建的namespace
+- setns是使当前进程加入已创建的namespace
 - clone是创建一个新的子进程，然后让子进程加入新的namespace
 
 * Namespace - UTS
@@ -215,8 +209,10 @@ clone和unshare都有创建并加入新的namespace的功能，他们的主要�
 
 隔离IPC资源：POSIX消息队列
 
+    # create share memory
     [root@localhost tmp]# ipcmk -Q
     Message queue id: 0
+    # list share memory 
     [root@localhost tmp]# ipcs -q
 
     ------ Message Queues --------
@@ -226,6 +222,7 @@ clone和unshare都有创建并加入新的namespace的功能，他们的主要�
     [root@localhost tmp]# ./ns_ipc
     Parent - start a container!
     Container - inside the container!
+    # list share memory
     [root@container tmp]# ipcs -q
     
     ------ Message Queues --------
@@ -271,6 +268,7 @@ clone和unshare都有创建并加入新的namespace的功能，他们的主要�
 * 容器资源限制 - Control Groups
 
 实际使用：
+
 - 隔离一个进程集合（比如：nginx的所有进程），并限制他们所消费的资源，比如绑定CPU的核。
 - 为某组进程 分配其足够使用的内存
 - 为这组进程分配相应的网络带宽和磁盘存储限制
@@ -320,6 +318,10 @@ Docker支持创建容器时候使用cgoup来实现对容器的resource control
 
     docker run -it -m 500M --kernel-memory 50M --cpu-shares 512 --blkio-weight 400 --name ubuntu1 ubuntu bash
 
+CGroup：
+
+    /sys/fs/cgroup/cpu/system.slice／docker-CONTAINER-ID
+
 * 容器安全
 
 * 容器安全模块
@@ -328,17 +330,13 @@ Docker支持创建容器时候使用cgoup来实现对容器的resource control
 
 * 容器安全 - Linux kernel
 
-- Namespaces - PID, Mount, Network, IPC, UTC, User
+- Namespaces - 隔离PID, Mount, Network, IPC, UTC, User
 - Cgroups - 限制CPU，Memory, IO
 - Capabilities - 减少 root access，kernel 3.19.0.21支持36 capabilities 
 - Seccomp profiles - 限制kernel 系统调用（system calls）， 可控制300+ 系统调用
 - Special kernel modules， 包括AppArmor, SElinux ， 提供kernel资源提供细颗粒控制
-
 - Namespackes - PID, Mount
 
-`docker run -it --name ubuntu1 -v /usr:/ubuntu1 ubuntu bash`
-`docker run -it --name ubuntu2 -v /usr:/ubuntu2 ubuntu bash`
-ubuntu1 container:
 
 *  Capabilities
 
@@ -352,7 +350,9 @@ ubuntu1 container:
 - Linux kernel 特性限制process的系统调用
 - Docker使用Seccomp限制container的系统调用
 - Docker禁用了300+系统调用中的44个，e.g. mount, settimeofday
-- .link https://github.com/moby/moby/blob/master/profiles/seccomp/default.json  Docker Seccomp profile
+
+.link https://github.com/moby/moby/blob/master/profiles/seccomp/default.json  Docker Seccomp profile
+
 .image moby-project-logo.png
 
 * Seccomp

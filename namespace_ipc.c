@@ -1,7 +1,3 @@
-int container_pid = clone(container_main, container_stack+STACK_SIZE, 
-            CLONE_NEWUTS | CLONE_NEWIPC | SIGCHLD, NULL);
-
-
 int container_main(void* arg)
 {
     printf("Container - inside the container!\n");
