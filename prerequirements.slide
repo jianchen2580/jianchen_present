@@ -1,6 +1,6 @@
 容器基础技术与安全
 
-DockerOne - Shanghai
+DockOne - Shanghai
 23 June 2017
 Tags: Docker, Namespace, CGroup，Security
 
@@ -36,7 +36,7 @@ chroot提供了一种简单的隔离模式：chroot内部的文件系统无法�
 
 - Precess-level
 - Precess-level
-- Precess-level （重要事情说三遍）
+- Precess-level 
 
 查看进程所属的namespaces
 
@@ -371,7 +371,8 @@ Profile disabling chmod system call:
 
 验证：
 
-    ➜  present git:(master) ✗ docker run --rm -it --security-opt seccomp:/Users/chenjian/Developments/present/profile.json busybox chmod 400 /etc/hosts
+    ➜  present git:(master) ✗ docker run --rm -it --security-opt \
+        seccomp:/Users/chenjian/Developments/present/profile.json busybox chmod 400 /etc/hosts
     chmod: /etc/hosts: Operation not permitted
     ➜  present git:(master) ✗ docker run --rm -it busybox chmod 400 /etc/hosts
 
