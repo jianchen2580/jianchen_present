@@ -1,0 +1,164 @@
+Kubernetes 
+
+DockOne - Shanghai
+23 June 2017
+Tags: Docker, k8s
+
+Jian Chen
+
+* Overview
+
+Kubernetes是Google针对自动化部署，扩容和管理容器化应用而设计的的开源系统.
+
+- 使用 Docker 对应用程序包装（package）、实例化（instantiate）、运行（run）
+- 以集群的方式运行、管理跨机器的容器
+- 解决 Docker 跨主机容器之间的通讯问题
+- Kubernetes 的自我修复机制使得容器集群总是运行在用户期望的状态
+
+* Kubernetes 架构解析
+
+    kube-apiserver                         REST API服务
+    kube-controller-manager                多个控制器的合体
+    kube-scheduler                         任务调度，命令下发
+    kube-proxy                             网络代理转发
+    kubelet                                容器的管理
+    kubectl                                客户端命令行工具
+    etcd                                   信息存储
+    flannel/Weave                          IP地址的分配
+
+* Kubernetes 架构解析
+
+.image kubernetes_architecture.png
+
+* Master 组件
+
+- kube-apiserver
+- Scheduler
+- etcd
+
+* Master 组件 - kube-apiserver
+
+提供和外部交互的接口和安全机制，大多数接口都是直接读写 etcd中的数据。通过 RESTful 的方式供客户端使用 (kubectl 就是最常用到的客户端程序)
+
+* Master 组件 - Kube-controller-manager
+
+用来执行整个系统中的后台任务，包括多个控制进程：
+
+- Node Controller 负责整个系统中 node up 或 down 的状态的响应和通知
+- Replication Controller 负责维持 Pods 中的正常运行的 pod 的个数
+- Endpoints Controller 负责维持 Pods 和 Service 的关联关系
+- Service Account & Token Controllers 负责为新的命名空间创建默认的账号和 API 访问 Token
+
+* Master 组件 - Scheduler 
+
+Scheduler：
+
+- 实时监测 Kubernetes 集群中未分发的 Pod；
+- 实时监测 Kubernetes 集群中所有运行的P od，Scheduler 需要根据这些 Pod 的资源状况安全地将未分发的 Pod 分发到指定的 Minion 节点上；
+- Scheduler 也监测 Minion 节点信息，由于会频繁查找 Minion 节点，Scheduler 会缓存一份最新的信息在本地；
+- 最后，Scheduler 在分发 Pod 到指定的 Minion 节点后，会把 Pod 相关的信息 Binding 写回 API Server；
+
+* Etcd
+
+etcd 是 kubernetes 存放集群状态和配置的地方，所有节点都是从 etcd 中获取集群中其他机器状态的，集群中所有容器的状态也是放在这里的。
+
+kubernetes 在 etcd 中存储的数据在 /registry：
+
+  /registry/minions
+  /registry/namespaces
+  /registry/pods
+  /registry/ranges
+  /registry/serviceaccounts
+  /registry/services
+  /registry/controllers
+  /registry/events
+
+* Slave 组件
+
+- kubelet
+- kube-proxy
+
+* Slave 组件 - kubelet
+
+kubelet 是 slave 上核心的工作进程，负责容器和 pod 的实际管理工作（创建、删除等）以及和 master 通信，内容包括：
+
+负责容器的创建、停止、删除等具体工作，也包括镜像下载、volume 管理；
+从 etcd 中获取分配给自己的信息，根据其中的信息来控制容器以达到对应的目标状态；
+接受来自 master 的请求，汇报本节点的信息；
+
+* Slave 组件 - kube-proxy
+
+kube-proxy 为 pod 提供代理服务，用来实现 kubernetes 的 service 机制。每个 service 都会被分配一个虚拟 ip，当应用访问到 service ip 和端口的时候，会先发送到 kube-proxy，然后才转发到机器上的容器服务。
+
+* kubectl 
+
+kubernetes 提供的客户端程序，也是目前常用的和集群交互的方式。创建、查看、管理、删除、更新 pod、service、replication controller 
+
+* kubernetes 的概念
+
+- Pods
+- Deployments (ReplicaSet/Replication Controller)
+- Services
+- ...
+
+* Pods
+
+kubernetes 中，最基本的管理单位是 pod 而不是 container。pod 由一个或者多个容器组成，一般运行着相同的应用。一个 pod 中的所有容器都必须运行在同一台机器上，共享网络空间（network namespace）和存储 （volume）。每个pod首先会启动一个 google_containers/pause 容器，然后再启动应用真正的应用容器，主要作用是来实现共享网络命名空间和存储。
+
+pod 可以近似类比传统模式下的主机：一些相关的应用组合起来，实现一个逻辑上的功能。
+
+记住：pod 不是持久的，也就是说在使用过程中会被删除和创建，只要保证 service （下文会介绍到）保持稳定就行。而持久化的功能可以通过共享的 volume 来实现，这样即使 pod 被不断删除创建也能保证数据的完整。
+
+* Deployments (ReplicaSet/Replication Controller)
+
+Deployment为Pod和ReplicaSet提供了一个声明式定义(declarative)方法
+ReplicaSet保证在任意时刻都有指定数量的 pod 副本在运行。比如某ReplicaSet，指定某个 pod 运行 3 份：
+
+- rs 发现集群中没有 pod，它会创建 3 个 pod
+- 某个 pod 不响应或者被删除了，它会检测到这个变化(Liveness Probes／Readiness Probes)，然后新建一个正常的 pod（替换错误状态的 pod）
+- 当错误的 pod 回复正常，或者用户又手动添加了几个 pod，rc 也会检测到，它会通过删除 pod 来保证只有 3 份副本在运行
+
+* Services
+
+service，也就是服务，是实际环境中对外提供服务的业务抽象。一个服务后端可能有多个容器提供支持，但是对外通过服务这一层只有一个接口，通过转发用户的请求到后端的应用上来实现。这样做的好处是：对外隐藏了后端的细节，使得扩展和维护变得更容易。
+
+在 kubernetes 中，service 后面对应的是 pod，这种对应关系是通过 label 来匹配的。每个 service 会配置 label selector 对后端的 pod 进行选择，因此这种关系是动态的，pod 的添加和删除都会自动被关联进来。
+
+service 是单独存在的，不必和 pod 或者 deployemnt 绑定。当对应的 pod 出现时，会动态的绑定到 service 上。
+
+* PV / PVC
+
+PersistentVolume（pv）和PersistentVolumeClaim（pvc）是k8s提供的两种API资源，用于抽象存储细节。
+关注于如何通过pv提供存储功能而无需关注用户如何使用，用户只需要挂载pvc到容器中而不需要关注存储卷采用何种技术实现。
+
+pvc和pv的类似于pod和node，前者消耗后者的资源。pvc可以向pv申请指定大小的存储资源并设置访问模式。
+
+* PV / PVC - 生命周期
+
+供应PV，管理员在集群中创建多个pv供用户使用。
+绑定，创建pvc并指定需要的资源和访问模式。在找到可用pv之前，pvc会保持未绑定状态。
+使用，可在pod中像volume一样使用pvc。
+释放，用户删除pvc来回收存储资源，pv将变成“released”状态。由于还保留着之前的数据
+回收，pv可以设置三种回收策略：保留（Retain），回收（Recycle）和删除（Delete）。 
+删除策略将删除pv和外部关联的存储资源，需要插件支持。
+回收策略将执行清除操作，之后可以被新的pvc使用，需要插件支持。
+
+
+* PV / PVC - pv类型
+
+- GCEPersistentDisk
+- AWS EBS
+- NFS
+- iSCSI
+- RBD (Ceph Block Device)
+- Glusterfs
+- ... 
+
+* PV / PVC - pv属性：
+
+pv拥有以下属性：
+
+- 容量。目前仅支持存储大小，未来可能支持IOPS和吞吐量等。
+- 访问模式。ReadWriteOnce：单个节点读写。ReadOnlyMany：多节点只读。ReadWriteMany：多节点读写。挂载时只能使用一种模式。
+回收策略。目前NFS和HostPath支持回收。 AWS/EBS、GCE、PD和Cinder支持删除。
+阶段。分为Available（未绑定pvc）、Bound（已绑定）、Released（pvc已删除但资源未回收）、Failed（自动回收失败）
