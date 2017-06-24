@@ -160,5 +160,20 @@ pv拥有以下属性：
 
 - 容量。目前仅支持存储大小，未来可能支持IOPS和吞吐量等。
 - 访问模式。ReadWriteOnce：单个节点读写。ReadOnlyMany：多节点只读。ReadWriteMany：多节点读写。挂载时只能使用一种模式。
-回收策略。目前NFS和HostPath支持回收。 AWS/EBS、GCE、PD和Cinder支持删除。
+- 回收策略。目前NFS和HostPath支持回收。 AWS/EBS、GCE、PD和Cinder支持删除。
 阶段。分为Available（未绑定pvc）、Bound（已绑定）、Released（pvc已删除但资源未回收）、Failed（自动回收失败）
+
+* k8s 服务暴露
+
+- Ingress
+- ClusterIP：使用集群内的私有ip —— 这是默认值
+- NodePort：除了使用cluster ip外，也将service的port映射到每个node的一个指定内部port上，映射的每个node的内部port都一样。
+- LoadBalancer：使用一个ClusterIP & NodePort，但是会向cloud provider（aws、azure、openstack、gce）申请映射到service本身的负载均衡。
+
+* Ingress
+
+.image ingress.png
+
+Ingress也是k8s中单独定义的对象，它的作用就是实现对外暴露访问的负载均衡
+Ingress和LB区别：
+Ingress支持L4、L7负载均衡，LoadBalancer设计上只支持L4；Ingress基于Pod部署，并将Pod网络设置成external network
